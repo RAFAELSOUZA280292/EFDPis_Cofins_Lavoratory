@@ -105,7 +105,7 @@ def parse_efd_piscofins(lines: List[str]) -> Tuple[pd.DataFrame, pd.DataFrame, s
     """
     Faz o parser do EFD PIS/COFINS e devolve:
       - df_c100: itens de NF-e de entrada com crédito (C100/C170)
-      - df_outros: demais documentos com crédito (A100/A170, C500/C501/C505, D100/D101/D105, F100/F120)
+      - df_outros: demais docs com crédito (A100/A170, C500/C501/C505, D100/D101/D105, F100/F120)
       - competencia: string "MM/AAAA"
       - empresa: razão social do contribuinte
     """
@@ -115,7 +115,7 @@ def parse_efd_piscofins(lines: List[str]) -> Tuple[pd.DataFrame, pd.DataFrame, s
     competencia = meta.get("competencia", "")
     empresa = meta.get("empresa", "")
 
-    # ---------- Mapas auxiliares: participantes e itens ----------
+    # ---------- Mapas auxiliares ----------
     map_part_nome: Dict[str, str] = {}
     map_coditem_ncm: Dict[str, str] = {}
 
@@ -245,14 +245,14 @@ def parse_efd_piscofins(lines: List[str]) -> Tuple[pd.DataFrame, pd.DataFrame, s
 
     df_c100 = pd.DataFrame(records_c100)
 
-    # ---------- OUTROS DOCUMENTOS (A100, C500/C501/C505, D100, F100) ----------
+    # ---------- OUTROS DOCUMENTOS ----------
     records_out: List[dict] = []
     currentA100 = None
     currentC500 = None
     currentD100 = None
     currentF100 = None
 
-    # acumuladores para C500 (energia)
+    # acumuladores de energia (C500/C501/C505)
     c500_pis_bc = ""
     c500_pis_aliq = ""
     c500_pis_val = ""
@@ -265,7 +265,6 @@ def parse_efd_piscofins(lines: List[str]) -> Tuple[pd.DataFrame, pd.DataFrame, s
         if currentC500 is None:
             return
 
-        # Só grava se houver PIS ou COFINS
         if (
             _to_float(c500_pis_val) == 0.0
             and _to_float(c500_cof_val) == 0.0
@@ -349,10 +348,9 @@ def parse_efd_piscofins(lines: List[str]) -> Tuple[pd.DataFrame, pd.DataFrame, s
 
         # ===== C500 / C501 / C505 - Energia elétrica =====
         if reg == "C500":
-            # Finaliza o C500 anterior (se houver)
+            # finaliza C500 anterior
             finalize_c500()
             currentC500 = p
-            # zera acumuladores
             c500_pis_bc = ""
             c500_pis_aliq = ""
             c500_pis_val = ""
@@ -361,17 +359,15 @@ def parse_efd_piscofins(lines: List[str]) -> Tuple[pd.DataFrame, pd.DataFrame, s
             c500_cof_val = ""
 
         elif reg == "C501" and currentC500 is not None:
-            # PIS da energia
             # Exemplo:
-            # |C501|50|9020,15|04|9020,15|1,65|148,83|4.8.01.002.011|
+            # |C501|50|9020,15|04|9020,15|1,65|148,83|...|
             c500_pis_bc = _get(p, 3)     # VL_BC_PIS
             c500_pis_aliq = _get(p, 6)   # ALIQ_PIS
             c500_pis_val = _get(p, 7)    # VL_PIS
 
         elif reg == "C505" and currentC500 is not None:
-            # COFINS da energia
             # Exemplo:
-            # |C505|50|9020,15|04|9020,15|7,6|685,53|4.8.01.002.011|
+            # |C505|50|9020,15|04|9020,15|7,6|685,53|...|
             c500_cof_bc = _get(p, 3)     # VL_BC_COFINS
             c500_cof_aliq = _get(p, 6)   # ALIQ_COFINS
             c500_cof_val = _get(p, 7)    # VL_COFINS
@@ -454,7 +450,6 @@ def parse_efd_piscofins(lines: List[str]) -> Tuple[pd.DataFrame, pd.DataFrame, s
             dt_doc = _get(currentF100, 5)
             vl_doc = _get(currentF100, 6)
 
-            # layout deduzido:
             # 9:VL_BC_PIS, 10:ALIQ_PIS, 11:VL_PIS
             # 13:VL_BC_COF, 14:ALIQ_COF, 15:VL_COF
             vl_bc_pis = _get(p, 9)
@@ -485,7 +480,7 @@ def parse_efd_piscofins(lines: List[str]) -> Tuple[pd.DataFrame, pd.DataFrame, s
                     }
                 )
 
-    # Finaliza o último C500 do arquivo (se tiver)
+    # Finaliza último C500 do arquivo
     finalize_c500()
 
     df_outros = pd.DataFrame(records_out)
