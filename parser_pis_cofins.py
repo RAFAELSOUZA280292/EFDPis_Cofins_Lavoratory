@@ -89,11 +89,10 @@ def _extract_metadata_0000(lines: List[str]) -> Dict[str, str]:
         p = line.strip().split("|")
         if len(p) > 1 and p[1] == "0000":
             # Exemplo:
-            # |0000|006|0|||01072025|31072025|STAMPA FOOD ...|CNPJ|UF|...
+            # |0000|006|0|||01072025|31072025|EMPRESA ...|
             dt_ini = _get(p, 6)
             empresa = _get(p, 8)
             if len(dt_ini) == 8:
-                # ddmmaaAA -> mm/aaaa
                 mes = dt_ini[2:4]
                 ano = dt_ini[4:]
                 competencia = f"{mes}/{ano}"
@@ -106,7 +105,7 @@ def parse_efd_piscofins(lines: List[str]) -> Tuple[pd.DataFrame, pd.DataFrame, s
     """
     Faz o parser do EFD PIS/COFINS e devolve:
       - df_c100: itens de NF-e de entrada com crédito (C100/C170)
-      - df_outros: demais documentos com crédito (A100/A170, C500/C505, D100/D101/D105, F100/F120)
+      - df_outros: demais documentos com crédito (A100/A170, C500/C501/C505, D100/D101/D105, F100/F120)
       - competencia: string "MM/AAAA"
       - empresa: razão social do contribuinte
     """
@@ -117,8 +116,8 @@ def parse_efd_piscofins(lines: List[str]) -> Tuple[pd.DataFrame, pd.DataFrame, s
     empresa = meta.get("empresa", "")
 
     # ---------- Mapas auxiliares: participantes e itens ----------
-    map_part_nome = {}
-    map_coditem_ncm = {}
+    map_part_nome: Dict[str, str] = {}
+    map_coditem_ncm: Dict[str, str] = {}
 
     for line in lines:
         p = line.strip().split("|")
@@ -141,7 +140,7 @@ def parse_efd_piscofins(lines: List[str]) -> Tuple[pd.DataFrame, pd.DataFrame, s
                 map_coditem_ncm[cod_item] = ncm
 
     # ---------- C100 / C170 - NF-e de entrada ----------
-    records_c100 = []
+    records_c100: List[dict] = []
     current_c100 = None
     current_ind_oper = None
 
@@ -246,9 +245,59 @@ def parse_efd_piscofins(lines: List[str]) -> Tuple[pd.DataFrame, pd.DataFrame, s
 
     df_c100 = pd.DataFrame(records_c100)
 
-    # ---------- OUTROS DOCUMENTOS (A100, C500, D100, F100) ----------
-    records_out = []
-    currentA100 = currentC500 = currentD100 = currentF100 = None
+    # ---------- OUTROS DOCUMENTOS (A100, C500/C501/C505, D100, F100) ----------
+    records_out: List[dict] = []
+    currentA100 = None
+    currentC500 = None
+    currentD100 = None
+    currentF100 = None
+
+    # acumuladores para C500 (energia)
+    c500_pis_bc = ""
+    c500_pis_aliq = ""
+    c500_pis_val = ""
+    c500_cof_bc = ""
+    c500_cof_aliq = ""
+    c500_cof_val = ""
+
+    def finalize_c500():
+        nonlocal currentC500, c500_pis_bc, c500_pis_aliq, c500_pis_val, c500_cof_bc, c500_cof_aliq, c500_cof_val
+        if currentC500 is None:
+            return
+
+        # Só grava se houver PIS ou COFINS
+        if (
+            _to_float(c500_pis_val) == 0.0
+            and _to_float(c500_cof_val) == 0.0
+            and _to_float(c500_pis_bc) == 0.0
+            and _to_float(c500_cof_bc) == 0.0
+        ):
+            return
+
+        cod_part = _get(currentC500, 2)
+        num_doc = _get(currentC500, 7)
+        dt_doc = _get(currentC500, 8)
+        vl_doc = _get(currentC500, 10)
+
+        records_out.append(
+            {
+                "COMPETENCIA": competencia,
+                "EMPRESA": empresa,
+                "TIPO": "C500/C501/C505",
+                "COD_PART": cod_part,
+                "FORNECEDOR": map_part_nome.get(cod_part, ""),
+                "NUM_DOC": num_doc,
+                "DT_DOC": dt_doc,
+                "VL_DOC": vl_doc,
+                "COD_ITEM": "",
+                "VL_BC_PIS": c500_pis_bc,
+                "ALIQ_PIS": c500_pis_aliq,
+                "VL_PIS": c500_pis_val,
+                "VL_BC_COFINS": c500_cof_bc,
+                "ALIQ_COFINS": c500_cof_aliq,
+                "VL_COFINS": c500_cof_val,
+            }
+        )
 
     for line in lines:
         p = line.strip().split("|")
@@ -267,9 +316,9 @@ def parse_efd_piscofins(lines: List[str]) -> Tuple[pd.DataFrame, pd.DataFrame, s
             vl_doc = _get(currentA100, 12)
             cod_item = _get(p, 3)
 
-            # layout deduzido do arquivo:
-            # 9:CST_PIS, 10:VL_BC_PIS, 11:ALIQ_PIS, 12:VL_PIS
-            # 13:CST_COF,14:VL_BC_COF,15:ALIQ_COF,16:VL_COF
+            # layout deduzido:
+            # 10:VL_BC_PIS, 11:ALIQ_PIS, 12:VL_PIS
+            # 14:VL_BC_COF, 15:ALIQ_COF, 16:VL_COF
             vl_bc_pis = _get(p, 10)
             aliq_pis = _get(p, 11)
             vl_pis = _get(p, 12)
@@ -298,43 +347,34 @@ def parse_efd_piscofins(lines: List[str]) -> Tuple[pd.DataFrame, pd.DataFrame, s
                     }
                 )
 
-        # ===== C500 / C505 - Energia =====
+        # ===== C500 / C501 / C505 - Energia elétrica =====
         if reg == "C500":
+            # Finaliza o C500 anterior (se houver)
+            finalize_c500()
             currentC500 = p
+            # zera acumuladores
+            c500_pis_bc = ""
+            c500_pis_aliq = ""
+            c500_pis_val = ""
+            c500_cof_bc = ""
+            c500_cof_aliq = ""
+            c500_cof_val = ""
+
+        elif reg == "C501" and currentC500 is not None:
+            # PIS da energia
+            # Exemplo:
+            # |C501|50|9020,15|04|9020,15|1,65|148,83|4.8.01.002.011|
+            c500_pis_bc = _get(p, 3)     # VL_BC_PIS
+            c500_pis_aliq = _get(p, 6)   # ALIQ_PIS
+            c500_pis_val = _get(p, 7)    # VL_PIS
 
         elif reg == "C505" and currentC500 is not None:
-            cod_part = _get(currentC500, 2)
-            num_doc = _get(currentC500, 7)
-            dt_doc = _get(currentC500, 8)
-            vl_doc = _get(currentC500, 10)
-
-            # layout deduzido:
-            # 2:CST_COF,3:VL_BC_PIS,4:NAT_BC,5:VL_BC_COF,6:ALIQ_COF,7:VL_COF
-            vl_bc_pis = _get(p, 3)
-            vl_bc_cof = _get(p, 5)
-            aliq_cof = _get(p, 6)
-            vl_cof = _get(p, 7)
-
-            if _to_float(vl_cof) > 0.0 or _to_float(vl_bc_pis) > 0.0:
-                records_out.append(
-                    {
-                        "COMPETENCIA": competencia,
-                        "EMPRESA": empresa,
-                        "TIPO": "C500/C505",
-                        "COD_PART": cod_part,
-                        "FORNECEDOR": map_part_nome.get(cod_part, ""),
-                        "NUM_DOC": num_doc,
-                        "DT_DOC": dt_doc,
-                        "VL_DOC": vl_doc,
-                        "COD_ITEM": "",
-                        "VL_BC_PIS": vl_bc_pis,
-                        "ALIQ_PIS": "",
-                        "VL_PIS": "",
-                        "VL_BC_COFINS": vl_bc_cof,
-                        "ALIQ_COFINS": aliq_cof,
-                        "VL_COFINS": vl_cof,
-                    }
-                )
+            # COFINS da energia
+            # Exemplo:
+            # |C505|50|9020,15|04|9020,15|7,6|685,53|4.8.01.002.011|
+            c500_cof_bc = _get(p, 3)     # VL_BC_COFINS
+            c500_cof_aliq = _get(p, 6)   # ALIQ_COFINS
+            c500_cof_val = _get(p, 7)    # VL_COFINS
 
         # ===== D100 / D101 / D105 - CT-e (fretes) =====
         if reg == "D100":
@@ -346,9 +386,7 @@ def parse_efd_piscofins(lines: List[str]) -> Tuple[pd.DataFrame, pd.DataFrame, s
             dt_doc = _get(currentD100, 11)
             vl_doc = _get(currentD100, 13)
 
-            # layout deduzido:
-            # 2:IND_NAT_FRT,3:VL_ITEM,4:CST_PIS,5:NAT_BC,
-            # 6:VL_BC_PIS,7:ALIQ_PIS,8:VL_PIS
+            # 6:VL_BC_PIS, 7:ALIQ_PIS, 8:VL_PIS
             vl_bc_pis = _get(p, 6)
             aliq_pis = _get(p, 7)
             vl_pis = _get(p, 8)
@@ -380,9 +418,7 @@ def parse_efd_piscofins(lines: List[str]) -> Tuple[pd.DataFrame, pd.DataFrame, s
             dt_doc = _get(currentD100, 11)
             vl_doc = _get(currentD100, 13)
 
-            # layout deduzido:
-            # 2:IND_NAT_FRT,3:VL_ITEM,4:CST_COF,5:NAT_BC,
-            # 6:VL_BC_COF,7:ALIQ_COF,8:VL_COF
+            # 6:VL_BC_COF, 7:ALIQ_COF, 8:VL_COF
             vl_bc_cof = _get(p, 6)
             aliq_cof = _get(p, 7)
             vl_cof = _get(p, 8)
@@ -418,9 +454,9 @@ def parse_efd_piscofins(lines: List[str]) -> Tuple[pd.DataFrame, pd.DataFrame, s
             dt_doc = _get(currentF100, 5)
             vl_doc = _get(currentF100, 6)
 
-            # layout deduzido do arquivo:
-            # 6:VL_TOT, 7:??, 8:CST_PIS, 9:VL_BC_PIS, 10:ALIQ_PIS, 11:VL_PIS,
-            # 12:CST_COF, 13:VL_BC_COF, 14:ALIQ_COF, 15:VL_COF
+            # layout deduzido:
+            # 9:VL_BC_PIS, 10:ALIQ_PIS, 11:VL_PIS
+            # 13:VL_BC_COF, 14:ALIQ_COF, 15:VL_COF
             vl_bc_pis = _get(p, 9)
             aliq_pis = _get(p, 10)
             vl_pis = _get(p, 11)
@@ -448,6 +484,9 @@ def parse_efd_piscofins(lines: List[str]) -> Tuple[pd.DataFrame, pd.DataFrame, s
                         "VL_COFINS": vl_cof,
                     }
                 )
+
+    # Finaliza o último C500 do arquivo (se tiver)
+    finalize_c500()
 
     df_outros = pd.DataFrame(records_out)
 
