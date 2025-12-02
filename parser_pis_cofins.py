@@ -2,7 +2,7 @@
 
 import io
 import zipfile
-from typing import Tuple, List
+from typing import Tuple, List, Dict
 
 import pandas as pd
 
@@ -76,12 +76,45 @@ def load_efd_from_upload(uploaded_file) -> List[str]:
     return lines
 
 
-def parse_efd_piscofins(lines: List[str]) -> Tuple[pd.DataFrame, pd.DataFrame]:
+def _extract_metadata_0000(lines: List[str]) -> Dict[str, str]:
+    """
+    Lê o registro 0000 para extrair:
+      - competência (MM/AAAA, ex.: 07/2025)
+      - empresa (razão social)
+    """
+    competencia = ""
+    empresa = ""
+
+    for line in lines:
+        p = line.strip().split("|")
+        if len(p) > 1 and p[1] == "0000":
+            # Exemplo:
+            # |0000|006|0|||01072025|31072025|STAMPA FOOD ...|CNPJ|UF|...
+            dt_ini = _get(p, 6)
+            empresa = _get(p, 8)
+            if len(dt_ini) == 8:
+                # ddmmaaAA -> mm/aaaa
+                mes = dt_ini[2:4]
+                ano = dt_ini[4:]
+                competencia = f"{mes}/{ano}"
+            break
+
+    return {"competencia": competencia, "empresa": empresa}
+
+
+def parse_efd_piscofins(lines: List[str]) -> Tuple[pd.DataFrame, pd.DataFrame, str, str]:
     """
     Faz o parser do EFD PIS/COFINS e devolve:
       - df_c100: itens de NF-e de entrada com crédito (C100/C170)
       - df_outros: demais documentos com crédito (A100/A170, C500/C505, D100/D101/D105, F100/F120)
+      - competencia: string "MM/AAAA"
+      - empresa: razão social do contribuinte
     """
+
+    # ---------- Metadados (0000) ----------
+    meta = _extract_metadata_0000(lines)
+    competencia = meta.get("competencia", "")
+    empresa = meta.get("empresa", "")
 
     # ---------- Mapas auxiliares: participantes e itens ----------
     map_part_nome = {}
@@ -174,6 +207,8 @@ def parse_efd_piscofins(lines: List[str]) -> Tuple[pd.DataFrame, pd.DataFrame]:
 
             records_c100.append(
                 {
+                    "COMPETENCIA": competencia,
+                    "EMPRESA": empresa,
                     "TIPO_REG": "C100/C170",
                     "IND_OPER": ind_oper,
                     "IND_EMIT": ind_emit,
@@ -232,7 +267,7 @@ def parse_efd_piscofins(lines: List[str]) -> Tuple[pd.DataFrame, pd.DataFrame]:
             vl_doc = _get(currentA100, 12)
             cod_item = _get(p, 3)
 
-            # layout deduzido do seu arquivo:
+            # layout deduzido do arquivo:
             # 9:CST_PIS, 10:VL_BC_PIS, 11:ALIQ_PIS, 12:VL_PIS
             # 13:CST_COF,14:VL_BC_COF,15:ALIQ_COF,16:VL_COF
             vl_bc_pis = _get(p, 10)
@@ -245,6 +280,8 @@ def parse_efd_piscofins(lines: List[str]) -> Tuple[pd.DataFrame, pd.DataFrame]:
             if _to_float(vl_pis) > 0.0 or _to_float(vl_cof) > 0.0:
                 records_out.append(
                     {
+                        "COMPETENCIA": competencia,
+                        "EMPRESA": empresa,
                         "TIPO": "A100/A170",
                         "COD_PART": cod_part,
                         "FORNECEDOR": map_part_nome.get(cod_part, ""),
@@ -281,6 +318,8 @@ def parse_efd_piscofins(lines: List[str]) -> Tuple[pd.DataFrame, pd.DataFrame]:
             if _to_float(vl_cof) > 0.0 or _to_float(vl_bc_pis) > 0.0:
                 records_out.append(
                     {
+                        "COMPETENCIA": competencia,
+                        "EMPRESA": empresa,
                         "TIPO": "C500/C505",
                         "COD_PART": cod_part,
                         "FORNECEDOR": map_part_nome.get(cod_part, ""),
@@ -297,7 +336,7 @@ def parse_efd_piscofins(lines: List[str]) -> Tuple[pd.DataFrame, pd.DataFrame]:
                     }
                 )
 
-        # ===== D100 / D101 / D105 - CT-e =====
+        # ===== D100 / D101 / D105 - CT-e (fretes) =====
         if reg == "D100":
             currentD100 = p
 
@@ -317,6 +356,8 @@ def parse_efd_piscofins(lines: List[str]) -> Tuple[pd.DataFrame, pd.DataFrame]:
             if _to_float(vl_pis) > 0.0:
                 records_out.append(
                     {
+                        "COMPETENCIA": competencia,
+                        "EMPRESA": empresa,
                         "TIPO": "D100/D101",
                         "COD_PART": cod_part,
                         "FORNECEDOR": map_part_nome.get(cod_part, ""),
@@ -349,6 +390,8 @@ def parse_efd_piscofins(lines: List[str]) -> Tuple[pd.DataFrame, pd.DataFrame]:
             if _to_float(vl_cof) > 0.0:
                 records_out.append(
                     {
+                        "COMPETENCIA": competencia,
+                        "EMPRESA": empresa,
                         "TIPO": "D100/D105",
                         "COD_PART": cod_part,
                         "FORNECEDOR": map_part_nome.get(cod_part, ""),
@@ -375,7 +418,7 @@ def parse_efd_piscofins(lines: List[str]) -> Tuple[pd.DataFrame, pd.DataFrame]:
             dt_doc = _get(currentF100, 5)
             vl_doc = _get(currentF100, 6)
 
-            # layout deduzido do SEU arquivo:
+            # layout deduzido do arquivo:
             # 6:VL_TOT, 7:??, 8:CST_PIS, 9:VL_BC_PIS, 10:ALIQ_PIS, 11:VL_PIS,
             # 12:CST_COF, 13:VL_BC_COF, 14:ALIQ_COF, 15:VL_COF
             vl_bc_pis = _get(p, 9)
@@ -388,6 +431,8 @@ def parse_efd_piscofins(lines: List[str]) -> Tuple[pd.DataFrame, pd.DataFrame]:
             if _to_float(vl_pis) > 0.0 or _to_float(vl_cof) > 0.0:
                 records_out.append(
                     {
+                        "COMPETENCIA": competencia,
+                        "EMPRESA": empresa,
                         "TIPO": "F100/F120",
                         "COD_PART": cod_part,
                         "FORNECEDOR": map_part_nome.get(cod_part, ""),
@@ -406,4 +451,4 @@ def parse_efd_piscofins(lines: List[str]) -> Tuple[pd.DataFrame, pd.DataFrame]:
 
     df_outros = pd.DataFrame(records_out)
 
-    return df_c100, df_outros
+    return df_c100, df_outros, competencia, empresa
