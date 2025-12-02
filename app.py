@@ -7,18 +7,18 @@ import streamlit as st
 from parser_pis_cofins import load_efd_from_upload, parse_efd_piscofins
 
 
-# ===== Configuração de página =====
+# ==============================
+# CONFIGURAÇÃO DE PÁGINA / TEMA
+# ==============================
 st.set_page_config(
     page_title="LavoraTAX Advisor - EFD PIS/COFINS",
     page_icon="📊",
     layout="wide",
 )
 
-
-# ===== Estilo LavoraTAX (preto + azul marinho escuro) =====
-LAVORATAX_DARK = "#050608"      # quase preto
-LAVORATAX_NAVY = "#0b1220"      # azul marinho bem escuro
-LAVORATAX_TEAL = "#0eb8b3"      # cor de destaque
+LAVORATAX_DARK = "#050608"
+LAVORATAX_NAVY = "#0b1220"
+LAVORATAX_TEAL = "#0eb8b3"
 LAVORATAX_TEXT = "#f5f5f5"
 
 CUSTOM_CSS = f"""
@@ -75,11 +75,12 @@ CUSTOM_CSS = f"""
 }}
 </style>
 """
-
 st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
 
 
-# ===== Helpers numéricos / formatação BR =====
+# ==============================
+# HELPERS NUMÉRICOS / FORMATAÇÃO
+# ==============================
 def to_float(s) -> float:
     s = str(s).strip()
     if not s:
@@ -96,21 +97,18 @@ def to_float(s) -> float:
 
 def format_brl(v: float) -> str:
     """
-    Converte 77508.52 -> '77.508,52'
+    77508.52 -> '77.508,52'
     """
     try:
         v = float(v)
     except Exception:
         return str(v)
-    s = f"{v:,.2f}"           # 77,508.52 (pt-en)
+    s = f"{v:,.2f}"           # 77,508.52
     s = s.replace(",", "X").replace(".", ",").replace("X", ".")
     return s
 
 
 def format_df_brl(df: pd.DataFrame, numeric_cols) -> pd.DataFrame:
-    """
-    Retorna uma cópia do df com as colunas numéricas formatadas em texto BR.
-    """
     df_disp = df.copy()
     for col in numeric_cols:
         if col in df_disp.columns:
@@ -120,8 +118,8 @@ def format_df_brl(df: pd.DataFrame, numeric_cols) -> pd.DataFrame:
 
 def resumo_tipo(df_outros: pd.DataFrame, tipos, label: str) -> pd.DataFrame:
     """
-    Gera um resumo agregado por tipo de documento e por COMPETENCIA/EMPRESA:
-      - BASE_PIS, BASE_COFINS, PIS, COFINS
+    Resumo por tipo de documento (A100/A170, C500/C505, etc.) agrupado por COMPETENCIA + EMPRESA.
+    Usa colunas numéricas pré-calculadas (_NUM).
     """
     if df_outros.empty:
         return pd.DataFrame()
@@ -130,14 +128,9 @@ def resumo_tipo(df_outros: pd.DataFrame, tipos, label: str) -> pd.DataFrame:
     if df.empty:
         return pd.DataFrame()
 
-    df["BASE_PIS_NUM"] = df["VL_BC_PIS"].apply(to_float)
-    df["BASE_COFINS_NUM"] = df["VL_BC_COFINS"].apply(to_float)
-    df["PIS_NUM"] = df["VL_PIS"].apply(to_float)
-    df["COFINS_NUM"] = df["VL_COFINS"].apply(to_float)
-
     grp = (
         df.groupby(["COMPETENCIA", "EMPRESA"], as_index=False)[
-            ["BASE_PIS_NUM", "BASE_COFINS_NUM", "PIS_NUM", "COFINS_NUM"]
+            ["VL_BC_PIS_NUM", "VL_BC_COFINS_NUM", "VL_PIS_NUM", "VL_COFINS_NUM"]
         ]
         .sum()
     )
@@ -146,17 +139,19 @@ def resumo_tipo(df_outros: pd.DataFrame, tipos, label: str) -> pd.DataFrame:
 
     grp = grp.rename(
         columns={
-            "BASE_PIS_NUM": "BASE_PIS",
-            "BASE_COFINS_NUM": "BASE_COFINS",
-            "PIS_NUM": "PIS",
-            "COFINS_NUM": "COFINS",
+            "VL_BC_PIS_NUM": "BASE_PIS",
+            "VL_BC_COFINS_NUM": "BASE_COFINS",
+            "VL_PIS_NUM": "PIS",
+            "VL_COFINS_NUM": "COFINS",
         }
     )
 
     return grp
 
 
-# ===== Header =====
+# ==============================
+# HEADER
+# ==============================
 st.markdown(
     '<div class="ltx-card">'
     '<div class="main-title">LavoraTAX Advisor • Auditoria EFD PIS/COFINS</div>'
@@ -169,7 +164,9 @@ st.markdown(
 st.write("")
 
 
-# ===== Upload (AGORA ACEITA VÁRIOS ARQUIVOS) =====
+# ==============================
+# UPLOAD (AGORA MULTI-ARQUIVO)
+# ==============================
 col_upload, col_info = st.columns([2, 1.2])
 
 with col_upload:
@@ -186,9 +183,10 @@ with col_info:
         <div class="ltx-card">
         <div class="ltx-metric">Dica</div>
         <div style="font-size:0.90rem; margin-top:0.3rem;">
-        • Pode carregar até 12 arquivos (12 meses)<br>
+        • Pode carregar até 12 arquivos (12 meses, por exemplo)<br>
         • Leiaute 2024/2025 (C100/C170, A100, C500, D100, F100)<br>
-        • Apenas documentos com <b>crédito efetivo</b> entram nos relatórios.
+        • Apenas documentos com <b>crédito efetivo</b> entram nos relatórios.<br>
+        • Para volumes muito grandes, use o Excel para análise detalhada linha a linha.
         </div>
         </div>
         """,
@@ -201,11 +199,18 @@ if not uploaded_files:
     st.info("⬆️ Carregue pelo menos um arquivo para iniciar a análise.")
     st.stop()
 
-# ===== Processamento de múltiplos arquivos =====
+
+# ==============================
+# PROCESSAMENTO DE MÚLTIPLOS ARQUIVOS
+# ==============================
 df_c100_list = []
 df_outros_list = []
 
-for uploaded_file in uploaded_files:
+progress = st.progress(0)
+status = st.empty()
+
+for idx, uploaded_file in enumerate(uploaded_files, start=1):
+    status.text(f"Processando arquivo {idx}/{len(uploaded_files)}: {uploaded_file.name}")
     try:
         lines = load_efd_from_upload(uploaded_file)
         df_c100_i, df_outros_i, competencia_i, empresa_i = parse_efd_piscofins(lines)
@@ -215,6 +220,10 @@ for uploaded_file in uploaded_files:
             df_outros_list.append(df_outros_i)
     except Exception as e:
         st.error(f"Erro ao processar o arquivo {uploaded_file.name}: {e}")
+    progress.progress(idx / len(uploaded_files))
+
+progress.empty()
+status.empty()
 
 if df_c100_list:
     df_c100 = pd.concat(df_c100_list, ignore_index=True)
@@ -230,17 +239,36 @@ if df_c100.empty and df_outros.empty:
     st.error("Nenhum crédito de PIS/COFINS encontrado nos arquivos enviados.")
     st.stop()
 
-# ===== Métricas resumo =====
+
+# ==============================
+# NORMALIZAÇÃO NUMÉRICA (UMA VEZ SÓ)
+# ==============================
+if not df_c100.empty:
+    df_c100["VL_ITEM_NUM"] = df_c100["VL_ITEM"].apply(to_float)
+    df_c100["VL_BC_PIS_NUM"] = df_c100["VL_BC_PIS"].apply(to_float)
+    df_c100["VL_BC_COFINS_NUM"] = df_c100["VL_BC_COFINS"].apply(to_float)
+    df_c100["VL_PIS_NUM"] = df_c100["VL_PIS"].apply(to_float)
+    df_c100["VL_COFINS_NUM"] = df_c100["VL_COFINS"].apply(to_float)
+
+if not df_outros.empty:
+    df_outros["VL_BC_PIS_NUM"] = df_outros["VL_BC_PIS"].apply(to_float)
+    df_outros["VL_BC_COFINS_NUM"] = df_outros["VL_BC_COFINS"].apply(to_float)
+    df_outros["VL_PIS_NUM"] = df_outros["VL_PIS"].apply(to_float)
+    df_outros["VL_COFINS_NUM"] = df_outros["VL_COFINS"].apply(to_float)
+
+
+# ==============================
+# MÉTRICAS RESUMO
+# ==============================
 total_itens_c100 = len(df_c100)
 total_outros = len(df_outros)
 
-total_pis_c100 = df_c100["VL_PIS"].apply(to_float).sum() if not df_c100.empty else 0.0
-total_cofins_c100 = df_c100["VL_COFINS"].apply(to_float).sum() if not df_c100.empty else 0.0
+total_pis_c100 = df_c100["VL_PIS_NUM"].sum() if not df_c100.empty else 0.0
+total_cofins_c100 = df_c100["VL_COFINS_NUM"].sum() if not df_c100.empty else 0.0
 
-total_pis_outros = df_outros["VL_PIS"].apply(to_float).sum() if not df_outros.empty else 0.0
-total_cofins_outros = df_outros["VL_COFINS"].apply(to_float).sum() if not df_outros.empty else 0.0
+total_pis_outros = df_outros["VL_PIS_NUM"].sum() if not df_outros.empty else 0.0
+total_cofins_outros = df_outros["VL_COFINS_NUM"].sum() if not df_outros.empty else 0.0
 
-# contador de NFs com crédito (NF-e – C100/C170)
 if not df_c100.empty:
     df_nfs = df_c100[["COMPETENCIA", "EMPRESA", "COD_MOD", "SERIE", "NUM_DOC"]].drop_duplicates()
     total_nfs_com_credito = len(df_nfs)
@@ -304,23 +332,32 @@ with col4:
 
 st.write("")
 
-# ===== Resumo por CFOP (NF-e) =====
+
+# ==============================
+# RESUMO POR CFOP (NF-e)
+# ==============================
 st.markdown("### 🧾 Resumo de Créditos por CFOP (NF-e de entrada)")
 
 if df_c100.empty:
     st.caption("Nenhum item de NF-e com crédito encontrado (C100/C170).")
     df_cfop_summary = pd.DataFrame()
 else:
-    df_tmp = df_c100.copy()
-    df_tmp["TOTAL_DOCUMENTO"] = df_tmp["VL_ITEM"].apply(to_float)
-    df_tmp["BASE_PIS_NUM"] = df_tmp["VL_BC_PIS"].apply(to_float)
-    df_tmp["BASE_COFINS_NUM"] = df_tmp["VL_BC_COFINS"].apply(to_float)
-    df_tmp["PIS_NUM"] = df_tmp["VL_PIS"].apply(to_float)
-    df_tmp["COFINS_NUM"] = df_tmp["VL_COFINS"].apply(to_float)
+    df_tmp = df_c100[
+        [
+            "COMPETENCIA",
+            "EMPRESA",
+            "CFOP",
+            "VL_ITEM_NUM",
+            "VL_BC_PIS_NUM",
+            "VL_BC_COFINS_NUM",
+            "VL_PIS_NUM",
+            "VL_COFINS_NUM",
+        ]
+    ].copy()
 
     grp = (
         df_tmp.groupby(["COMPETENCIA", "EMPRESA", "CFOP"], as_index=False)[
-            ["TOTAL_DOCUMENTO", "BASE_PIS_NUM", "BASE_COFINS_NUM", "PIS_NUM", "COFINS_NUM"]
+            ["VL_ITEM_NUM", "VL_BC_PIS_NUM", "VL_BC_COFINS_NUM", "VL_PIS_NUM", "VL_COFINS_NUM"]
         ]
         .sum()
         .sort_values(["COMPETENCIA", "EMPRESA", "CFOP"])
@@ -328,10 +365,11 @@ else:
 
     df_cfop_summary = grp.rename(
         columns={
-            "BASE_PIS_NUM": "BASE_PIS",
-            "BASE_COFINS_NUM": "BASE_COFINS",
-            "PIS_NUM": "PIS",
-            "COFINS_NUM": "COFINS",
+            "VL_ITEM_NUM": "TOTAL_DOCUMENTO",
+            "VL_BC_PIS_NUM": "BASE_PIS",
+            "VL_BC_COFINS_NUM": "BASE_COFINS",
+            "VL_PIS_NUM": "PIS",
+            "VL_COFINS_NUM": "COFINS",
         }
     )
 
@@ -346,7 +384,10 @@ else:
 
 st.write("")
 
-# ===== Resumos por tipo de documento =====
+
+# ==============================
+# RESUMOS POR TIPO DE DOCUMENTO
+# ==============================
 st.markdown("### 📚 Resumo de Créditos por Tipo de Documento")
 
 df_servicos = resumo_tipo(df_outros, ["A100/A170"], "Serviços tomados (A100/A170)")
@@ -358,49 +399,50 @@ col_a, col_b = st.columns(2)
 
 with col_a:
     st.markdown("##### Serviços tomados (A100/A170)")
-    if df_servicos is not None and not df_servicos.empty:
+    if not df_servicos.empty:
         st.table(format_df_brl(df_servicos, ["BASE_PIS", "BASE_COFINS", "PIS", "COFINS"]))
     else:
         st.caption("Nenhum crédito de serviços tomados identificado.")
 
     st.markdown("##### Fretes / transporte (D100/D101/D105)")
-    if df_fretes is not None and not df_fretes.empty:
+    if not df_fretes.empty:
         st.table(format_df_brl(df_fretes, ["BASE_PIS", "BASE_COFINS", "PIS", "COFINS"]))
     else:
         st.caption("Nenhum crédito de fretes identificado.")
 
 with col_b:
     st.markdown("##### Energia elétrica (C500/C505)")
-    if df_energia is not None and not df_energia.empty:
+    if not df_energia.empty:
         st.table(format_df_brl(df_energia, ["BASE_PIS", "BASE_COFINS", "PIS", "COFINS"]))
     else:
         st.caption("Nenhum crédito de energia elétrica identificado.")
 
     st.markdown("##### Outras faturas (F100/F120)")
-    if df_out_fat is not None and not df_out_fat.empty:
+    if not df_out_fat.empty:
         st.table(format_df_brl(df_out_fat, ["BASE_PIS", "BASE_COFINS", "PIS", "COFINS"]))
     else:
         st.caption("Nenhum crédito de outras faturas identificado.")
 
 st.write("")
 
-# ===== Ranking TOP 10 NCM (NF-e) =====
+
+# ==============================
+# RANKING TOP 10 NCM (NF-e)
+# ==============================
 st.markdown("### 🥇 TOP 10 NCM com mais créditos (NF-e de entrada)")
 
 if df_c100.empty:
     st.caption("Nenhum item de NF-e com crédito para ranking de NCM.")
     df_rank_ncm = pd.DataFrame()
 else:
-    df_ncm = df_c100.copy()
-    df_ncm["BASE_PIS_NUM"] = df_ncm["VL_BC_PIS"].apply(to_float)
-    df_ncm["BASE_COFINS_NUM"] = df_ncm["VL_BC_COFINS"].apply(to_float)
-    df_ncm["PIS_NUM"] = df_ncm["VL_PIS"].apply(to_float)
-    df_ncm["COFINS_NUM"] = df_ncm["VL_COFINS"].apply(to_float)
-    df_ncm["CREDITO_TOTAL"] = df_ncm["PIS_NUM"] + df_ncm["COFINS_NUM"]
+    df_ncm = df_c100[
+        ["NCM", "VL_BC_PIS_NUM", "VL_BC_COFINS_NUM", "VL_PIS_NUM", "VL_COFINS_NUM"]
+    ].copy()
+    df_ncm["CREDITO_TOTAL"] = df_ncm["VL_PIS_NUM"] + df_ncm["VL_COFINS_NUM"]
 
     grp_ncm = (
         df_ncm.groupby("NCM", as_index=False)[
-            ["BASE_PIS_NUM", "BASE_COFINS_NUM", "PIS_NUM", "COFINS_NUM", "CREDITO_TOTAL"]
+            ["VL_BC_PIS_NUM", "VL_BC_COFINS_NUM", "VL_PIS_NUM", "VL_COFINS_NUM", "CREDITO_TOTAL"]
         ]
         .sum()
         .sort_values("CREDITO_TOTAL", ascending=False)
@@ -409,10 +451,10 @@ else:
 
     df_rank_ncm = grp_ncm.rename(
         columns={
-            "BASE_PIS_NUM": "BASE_PIS",
-            "BASE_COFINS_NUM": "BASE_COFINS",
-            "PIS_NUM": "PIS",
-            "COFINS_NUM": "COFINS",
+            "VL_BC_PIS_NUM": "BASE_PIS",
+            "VL_BC_COFINS_NUM": "BASE_COFINS",
+            "VL_PIS_NUM": "PIS",
+            "VL_COFINS_NUM": "COFINS",
         }
     )
 
@@ -427,30 +469,28 @@ else:
 
 st.write("")
 
-# ===== Ranking TOP 10 Fornecedores (todos os documentos) =====
+
+# ==============================
+# RANKING TOP 10 FORNECEDORES
+# ==============================
 st.markdown("### 🥇 TOP 10 Fornecedores que mais geram créditos (NF-e + Outros docs)")
 
-# unificar créditos por fornecedor (C100 + OUTROS)
 frames_forn = []
 
 if not df_c100.empty and "FORNECEDOR" in df_c100.columns:
-    df_f1 = df_c100[["FORNECEDOR", "VL_PIS", "VL_COFINS"]].copy()
-    df_f1["VL_PIS"] = df_f1["VL_PIS"].apply(to_float)
-    df_f1["VL_COFINS"] = df_f1["VL_COFINS"].apply(to_float)
+    df_f1 = df_c100[["FORNECEDOR", "VL_PIS_NUM", "VL_COFINS_NUM"]].copy()
     frames_forn.append(df_f1)
 
 if not df_outros.empty and "FORNECEDOR" in df_outros.columns:
-    df_f2 = df_outros[["FORNECEDOR", "VL_PIS", "VL_COFINS"]].copy()
-    df_f2["VL_PIS"] = df_f2["VL_PIS"].apply(to_float)
-    df_f2["VL_COFINS"] = df_f2["VL_COFINS"].apply(to_float)
+    df_f2 = df_outros[["FORNECEDOR", "VL_PIS_NUM", "VL_COFINS_NUM"]].copy()
     frames_forn.append(df_f2)
 
 if frames_forn:
     df_forn_all = pd.concat(frames_forn, ignore_index=True)
-    df_forn_all["CREDITO_TOTAL"] = df_forn_all["VL_PIS"] + df_forn_all["VL_COFINS"]
+    df_forn_all["CREDITO_TOTAL"] = df_forn_all["VL_PIS_NUM"] + df_forn_all["VL_COFINS_NUM"]
 
     grp_forn = (
-        df_forn_all.groupby("FORNECEDOR", as_index=False)[["VL_PIS", "VL_COFINS", "CREDITO_TOTAL"]]
+        df_forn_all.groupby("FORNECEDOR", as_index=False)[["VL_PIS_NUM", "VL_COFINS_NUM", "CREDITO_TOTAL"]]
         .sum()
         .sort_values("CREDITO_TOTAL", ascending=False)
         .head(10)
@@ -458,8 +498,8 @@ if frames_forn:
 
     df_rank_forn = grp_forn.rename(
         columns={
-            "VL_PIS": "PIS",
-            "VL_COFINS": "COFINS",
+            "VL_PIS_NUM": "PIS",
+            "VL_COFINS_NUM": "COFINS",
         }
     )
 else:
@@ -476,57 +516,85 @@ else:
 
 st.write("")
 
-# ===== Tabelas detalhadas =====
-st.markdown("### 📄 NF-e de Entrada com Crédito (C100 / C170)")
-st.caption("Itens de notas fiscais de entrada que geraram base e/ou crédito de PIS/COFINS.")
 
-with st.expander("Visualizar tabela completa de NF-e (C100/C170)", expanded=False):
-    st.dataframe(
-        df_c100,
-        use_container_width=True,
-        height=400,
-    )
+# ==============================
+# TABELAS DETALHADAS (AMOSTRA)
+# ==============================
+st.markdown("### 📄 NF-e de Entrada com Crédito (C100 / C170)")
+st.caption(
+    "Exibindo apenas uma amostra (até 2.000 linhas) para não travar o navegador. "
+    "O Excel contém 100% das linhas."
+)
+
+with st.expander("Visualizar amostra da tabela de NF-e (C100/C170)", expanded=False):
+    if not df_c100.empty:
+        st.dataframe(
+            df_c100.head(2000),
+            use_container_width=True,
+            height=400,
+        )
+    else:
+        st.caption("Sem dados de NF-e com crédito.")
 
 st.markdown("### 📄 Outros Documentos com Crédito (A100, C500, D100, F100)")
-st.caption("Serviços, energia elétrica, CT-e e demais documentos geradores de créditos.")
+st.caption(
+    "Exibindo apenas uma amostra (até 2.000 linhas). "
+    "O Excel contém a lista completa de documentos."
+)
 
-with st.expander("Visualizar tabela completa de outros documentos", expanded=False):
-    st.dataframe(
-        df_outros,
-        use_container_width=True,
-        height=400,
-    )
+with st.expander("Visualizar amostra da tabela de outros documentos", expanded=False):
+    if not df_outros.empty:
+        st.dataframe(
+            df_outros.head(2000),
+            use_container_width=True,
+            height=400,
+        )
+    else:
+        st.caption("Sem dados de outros documentos com crédito.")
 
-# ===== Download do Excel =====
+st.write("")
+
+
+# ==============================
+# DOWNLOAD DO EXCEL (ON DEMAND)
+# ==============================
 st.markdown("### ⬇️ Download do Relatório em Excel")
 
-buffer = io.BytesIO()
-with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
-    df_c100.to_excel(writer, sheet_name="C100_C170", index=False)
-    df_outros.to_excel(writer, sheet_name="OUTROS_DOCUMENTOS", index=False)
-    if not df_cfop_summary.empty:
-        df_cfop_summary.to_excel(writer, sheet_name="RESUMO_CFOP", index=False)
-    if df_servicos is not None and not df_servicos.empty:
-        df_servicos.to_excel(writer, sheet_name="RESUMO_SERVICOS", index=False)
-    if df_energia is not None and not df_energia.empty:
-        df_energia.to_excel(writer, sheet_name="RESUMO_ENERGIA", index=False)
-    if df_fretes is not None and not df_fretes.empty:
-        df_fretes.to_excel(writer, sheet_name="RESUMO_FRETES", index=False)
-    if df_out_fat is not None and not df_out_fat.empty:
-        df_out_fat.to_excel(writer, sheet_name="RESUMO_OUTRAS_FATURAS", index=False)
-    if not df_rank_ncm.empty:
-        df_rank_ncm.to_excel(writer, sheet_name="RANKING_NCM", index=False)
-    if not df_rank_forn.empty:
-        df_rank_forn.to_excel(writer, sheet_name="RANKING_FORNECEDORES", index=False)
-
-buffer.seek(0)
-
-st.download_button(
-    label="Baixar Excel de Créditos PIS/COFINS",
-    data=buffer,
-    file_name="Relatorio_Creditos_PIS_COFINS.xlsx",
-    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+st.caption(
+    "Para volumes grandes, a geração do Excel pode levar alguns segundos. "
+    "Clique no botão abaixo somente quando quiser realmente o arquivo consolidado."
 )
+
+gerar_excel = st.button("Gerar Excel de Créditos PIS/COFINS")
+
+if gerar_excel:
+    buffer = io.BytesIO()
+    with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
+        df_c100.to_excel(writer, sheet_name="C100_C170", index=False)
+        df_outros.to_excel(writer, sheet_name="OUTROS_DOCUMENTOS", index=False)
+        if not df_cfop_summary.empty:
+            df_cfop_summary.to_excel(writer, sheet_name="RESUMO_CFOP", index=False)
+        if not df_servicos.empty:
+            df_servicos.to_excel(writer, sheet_name="RESUMO_SERVICOS", index=False)
+        if not df_energia.empty:
+            df_energia.to_excel(writer, sheet_name="RESUMO_ENERGIA", index=False)
+        if not df_fretes.empty:
+            df_fretes.to_excel(writer, sheet_name="RESUMO_FRETES", index=False)
+        if not df_out_fat.empty:
+            df_out_fat.to_excel(writer, sheet_name="RESUMO_OUTRAS_FATURAS", index=False)
+        if not df_rank_ncm.empty:
+            df_rank_ncm.to_excel(writer, sheet_name="RANKING_NCM", index=False)
+        if not df_rank_forn.empty:
+            df_rank_forn.to_excel(writer, sheet_name="RANKING_FORNECEDORES", index=False)
+
+    buffer.seek(0)
+
+    st.download_button(
+        label="Baixar Excel de Créditos PIS/COFINS",
+        data=buffer,
+        file_name="Relatorio_Creditos_PIS_COFINS.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
 
 st.markdown(
     '<div class="ltx-footer">LavoraTAX Advisor • Análise automatizada de EFD PIS/COFINS</div>',
