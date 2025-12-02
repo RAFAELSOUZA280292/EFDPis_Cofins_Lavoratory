@@ -118,7 +118,7 @@ def format_df_brl(df: pd.DataFrame, numeric_cols) -> pd.DataFrame:
 
 def resumo_tipo(df_outros: pd.DataFrame, tipos, label: str) -> pd.DataFrame:
     """
-    Resumo por tipo de documento (A100/A170, C500/C505, etc.) agrupado por COMPETENCIA + EMPRESA.
+    Resumo por tipo de documento (A100/A170, C500/C501/C505, etc.) agrupado por COMPETENCIA + EMPRESA.
     Usa colunas numéricas pré-calculadas (_NUM).
     """
     if df_outros.empty:
@@ -165,7 +165,7 @@ st.write("")
 
 
 # ==============================
-# UPLOAD (AGORA MULTI-ARQUIVO)
+# UPLOAD (MULTI-ARQUIVO)
 # ==============================
 col_upload, col_info = st.columns([2, 1.2])
 
@@ -201,7 +201,7 @@ if not uploaded_files:
 
 
 # ==============================
-# PROCESSAMENTO DE MÚLTIPLOS ARQUIVOS
+# PROCESSAMENTO DOS ARQUIVOS
 # ==============================
 df_c100_list = []
 df_outros_list = []
@@ -241,7 +241,7 @@ if df_c100.empty and df_outros.empty:
 
 
 # ==============================
-# NORMALIZAÇÃO NUMÉRICA (UMA VEZ SÓ)
+# NORMALIZAÇÃO NUMÉRICA (UMA VEZ)
 # ==============================
 if not df_c100.empty:
     df_c100["VL_ITEM_NUM"] = df_c100["VL_ITEM"].apply(to_float)
@@ -391,7 +391,11 @@ st.write("")
 st.markdown("### 📚 Resumo de Créditos por Tipo de Documento")
 
 df_servicos = resumo_tipo(df_outros, ["A100/A170"], "Serviços tomados (A100/A170)")
-df_energia = resumo_tipo(df_outros, ["C500/C505"], "Energia elétrica (C500/C505)")
+df_energia = resumo_tipo(
+    df_outros,
+    ["C500/C501/C505"],
+    "Energia elétrica (C500/C501/C505 - PIS em C501, COFINS em C505)",
+)
 df_fretes = resumo_tipo(df_outros, ["D100/D101", "D100/D105"], "Fretes / transporte (D100/D101/D105)")
 df_out_fat = resumo_tipo(df_outros, ["F100/F120"], "Outras faturas (F100/F120)")
 
@@ -411,7 +415,7 @@ with col_a:
         st.caption("Nenhum crédito de fretes identificado.")
 
 with col_b:
-    st.markdown("##### Energia elétrica (C500/C505)")
+    st.markdown("##### Energia elétrica (C500/C501/C505)")
     if not df_energia.empty:
         st.table(format_df_brl(df_energia, ["BASE_PIS", "BASE_COFINS", "PIS", "COFINS"]))
     else:
