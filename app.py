@@ -1,5 +1,5 @@
 """
-LaboraTAX Advisor – EFD PIS/COFINS (Versão 3.2 - Premium Executiva Otimizada)
+LavoraTax Advisor – EFD PIS/COFINS (Versão 3.2 - Premium Executiva Otimizada)
 ================================================================================
 
 Painel executivo premium para análise consolidada de créditos de PIS/COFINS.
@@ -9,6 +9,7 @@ Principais melhorias v3.2:
 * **FIX:** Extração correta de dados de A100, C500, D100 e F100 no parser.
 * **FIX:** Exibição da Chave de Acesso (CHV_NFE) na tabela C100/C170.
 * **FIX:** Exibição correta de bases e valores nos Demais Documentos de Crédito.
+* **BRANDING:** Renomeado para LavoraTax Advisor (braço da Lavoratory Group).
 """
 
 import io
@@ -29,7 +30,7 @@ from parser_pis_cofins import parse_efd_piscofins
 # =============================================================================
 
 st.set_page_config(
-    page_title="LaboraTAX Advisor – EFD PIS/COFINS",
+    page_title="LavoraTax Advisor – EFD PIS/COFINS",
     page_icon="📊",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -325,6 +326,7 @@ def resumo_tipo(df_outros: pd.DataFrame, tipos: List[str], label: str) -> pd.Dat
     df["VL_COFINS_NUM"] = df["VL_COFINS"].apply(to_float)
 
     # Apenas documentos com crédito real (PIS ou COFINS > 0)
+    # **REVISÃO:** Mantido o filtro para garantir que apenas documentos com crédito sejam contabilizados no resumo.
     df = df[(df["VL_PIS_NUM"] > 0) | (df["VL_COFINS_NUM"] > 0)]
     if df.empty:
         return pd.DataFrame(columns=cols)
@@ -404,8 +406,34 @@ def resumo_cfop_mapeado(df_c100: pd.DataFrame) -> pd.DataFrame:
 @st.cache_data(show_spinner=False)
 def parse_file(uploaded_file) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, str, str]:
     """Processa arquivo EFD com cache."""
-    # Otimizado para usar a função load_efd_from_upload do parser
-    lines = load_efd_from_upload(uploaded_file)
+    # Lê o arquivo e converte em linhas
+    raw = uploaded_file.read()
+    name = uploaded_file.name.lower()
+
+    if name.endswith(".zip"):
+        # Extrai .txt do .zip
+        try:
+            with zipfile.ZipFile(io.BytesIO(raw)) as z:
+                for fname in z.namelist():
+                    if fname.lower().endswith(".txt"):
+                        with z.open(fname) as f:
+                            data = f.read()
+                            try:
+                                text = data.decode("utf-8")
+                            except Exception:
+                                text = data.decode("latin-1", errors="ignore")
+                            lines = [ln for ln in text.splitlines() if ln.strip()]
+                            return parse_efd_piscofins(lines)
+        except Exception:
+            pass
+    
+    # Decodifica .txt
+    try:
+        text = raw.decode("utf-8")
+    except Exception:
+        text = raw.decode("latin-1", errors="ignore")
+    
+    lines = [ln for ln in text.splitlines() if ln.strip()]
     return parse_efd_piscofins(lines)
 
 
@@ -423,7 +451,7 @@ if "files_data" not in st.session_state:
 st.markdown(
     """
     <div class="header-main">
-        <h1>📊 LaboraTAX Advisor</h1>
+        <h1>📊 LavoraTax Advisor</h1>
         <p>Análise Executiva Premium de Créditos PIS/COFINS – EFD Contribuições</p>
     </div>
     """,
@@ -482,8 +510,6 @@ if uploaded_files:
             try:
                 status_text.text(f"⏳ Processando: {f.name}")
                 
-                # Para evitar problemas de serialização, lemos o conteúdo e passamos para o parser
-                # O parser corrigido já lida com o encoding
                 df_c100_file, df_outros_file, df_ap_file, df_cred_file, comp, emp = parse_file(f)
 
                 st.session_state.files_data.append({
@@ -1106,7 +1132,7 @@ with tab_export:
     st.download_button(
         label="📥 Baixar Relatório Completo (Excel)",
         data=buffer,
-        file_name="LaboraTAX_Relatorio_PIS_COFINS.xlsx",
+        file_name="LavoraTax_Relatorio_PIS_COFINS.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )
 
