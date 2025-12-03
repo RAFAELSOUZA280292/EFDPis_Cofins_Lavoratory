@@ -1,15 +1,21 @@
-# parser_pis_cofins.py
 """
-Parser de EFD PIS/COFINS focado em créditos de entradas
-(C100/C170, A100/A170, C500/C501/C505, D100/D101/D105, F100/F120)
-e nos registros de apuração de PIS (M200) e créditos PIS (M105).
+Parser de EFD PIS/COFINS focado em créditos de entradas.
+
+Registros tratados:
+- C100/C170: NF-e de entrada (itens)
+- A100/A170: serviços tomados
+- C500/C501/C505: energia elétrica
+- D100/D101/D105: fretes / CT-e
+- F100/F120: demais documentos geradores de crédito
+- M200: apuração do PIS
+- M105: créditos de PIS por natureza
 
 Pensado para trabalhar em conjunto com o app Streamlit (app.py).
 """
 
 import io
 import zipfile
-from typing import Tuple, List, Dict
+from typing import List, Tuple, Dict
 
 import pandas as pd
 
@@ -366,10 +372,9 @@ def parse_efd_piscofins(lines: List[str]):
             continue
 
         if reg == "D101":
-            try:
-                d100 = current_d100  # type: ignore[name-defined]
-            except NameError:
+            if current_d100 is None:
                 continue
+            d100 = current_d100
 
             cod_part = _get(d100, 4)
             num_doc = _get(d100, 8)
@@ -408,10 +413,9 @@ def parse_efd_piscofins(lines: List[str]):
             continue
 
         if reg == "D105":
-            try:
-                d100 = current_d100  # type: ignore[name-defined]
-            except NameError:
+            if current_d100 is None:
                 continue
+            d100 = current_d100
 
             cod_part = _get(d100, 4)
             num_doc = _get(d100, 8)
@@ -455,10 +459,9 @@ def parse_efd_piscofins(lines: List[str]):
             continue
 
         if reg == "F120":
-            try:
-                f100 = current_f100  # type: ignore[name-defined]
-            except NameError:
+            if current_f100 is None:
                 continue
+            f100 = current_f100
 
             cod_part = _get(f100, 3)
             num_doc = _get(f100, 5)
@@ -510,7 +513,6 @@ def parse_efd_piscofins(lines: List[str]):
 
         # ------------ M200 (Apuração PIS) ------------
         if reg == "M200":
-            # Campos principais conforme GP 1.35 (ajuste simplificado)
             row = {
                 "COMPETENCIA": competencia,
                 "EMPRESA": empresa,
