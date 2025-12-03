@@ -1,15 +1,15 @@
 """
-LavoraTax Advisor – EFD PIS/COFINS (Versão 3.2.1 - Premium Executiva Otimizada)
+LavoraTax Advisor – EFD PIS/COFINS (Versão 3.2.2 - Premium Executiva Otimizada)
 ================================================================================
 
 Painel executivo premium para análise consolidada de créditos de PIS/COFINS.
 Otimizado para CEO, CFO, Diretores Tributários e Financeiros.
 
-Principais melhorias v3.2.1:
-* **FIX:** Corrigido o erro de carregamento infinito (loop/falha) no parser.
+Principais melhorias v3.2.2:
+* **FIX:** Corrigido o erro de NameError ('_decode_bytes' is not defined) na função parse_file.
+* **FIX:** Estabilidade e correção de loops no parser.
 * **FIX:** Extração correta de dados de A100, C500, D100 e F100 no parser.
 * **FIX:** Exibição da Chave de Acesso (CHV_NFE) na tabela C100/C170.
-* **FIX:** Exibição correta de bases e valores nos Demais Documentos de Crédito.
 * **BRANDING:** Renomeado para LavoraTax Advisor (braço da Lavoratory Group).
 """
 
@@ -22,8 +22,8 @@ import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
 
-# Importa o parser corrigido
-from parser_pis_cofins import parse_efd_piscofins
+# Importa o parser corrigido e a função de carregamento
+from parser_pis_cofins import parse_efd_piscofins, load_efd_from_upload
 
 
 # =============================================================================
@@ -405,20 +405,10 @@ def resumo_cfop_mapeado(df_c100: pd.DataFrame) -> pd.DataFrame:
     return grouped
 
 
+@st.cache_data(show_spinner=False)
 def parse_file(uploaded_file) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, str, str]:
-    """
-    Recebe um UploadedFile do Streamlit (txt ou zip) e processa o SPED.
-    """
-    raw = uploaded_file.read()
-    name = uploaded_file.name.lower()
-
-    if name.endswith(".zip"):
-        text = _extract_txt_from_zip(raw)
-    else:
-        text = _decode_bytes(raw)
-
-    lines = [ln for ln in text.splitlines() if ln.strip()]
-    
+    """Processa arquivo EFD usando load_efd_from_upload."""
+    lines = load_efd_from_upload(uploaded_file)
     return parse_efd_piscofins(lines)
 
 
@@ -816,7 +806,6 @@ with tab_docs:
         st.markdown("<div class='divider'></div>", unsafe_allow_html=True)
         st.markdown("<h3 class='subsection-title'>🏆 Ranking de Créditos por NCM</h3>", unsafe_allow_html=True)
         
-        # Calcula ranking por NCM
         if "NCM" in df_c100_cred.columns:
             # 1. Agrupa por NCM e coleta os dados
             df_ranking_ncm = df_c100_cred.groupby("NCM", as_index=False).agg({
