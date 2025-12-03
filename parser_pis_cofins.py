@@ -349,20 +349,30 @@ def parse_efd_piscofins(
         # ------------ D100 / D101 / D105 (Fretes) ------------
         if reg == "D100":
             current_d100 = p
+            current_d101 = None  # Acumula PIS
+            current_d105 = None  # Acumula COFINS
             continue
 
-        if reg == "D101" or reg == "D105":
+        if reg == "D101":
             if current_d100 is None:
                 continue
+            current_d101 = p
+            continue
+
+        if reg == "D105":
+            if current_d100 is None:
+                continue
+            current_d105 = p
             
-            # D100: 12: NUM_DOC, 13: DT_DOC
+            # Quando encontra D105, consolida D101 + D105
             num_doc = _get(current_d100, 12)
             dt_doc = _get(current_d100, 13)
             
-            # D101/D105: 4: VL_BC_PIS, 5: VL_PIS, 7: VL_BC_COFINS, 8: VL_COFINS
-            vl_bc_pis = _get(p, 4)
-            vl_pis = _get(p, 5)
-            vl_bc_cof = _get(p, 7)
+            # D101: [6]: Base, [7]: PIS, [8]: (?)
+            # D105: [6]: Base, [7]: (alíquota?), [8]: COFINS
+            vl_bc_pis = _get(current_d101, 6) if current_d101 else _get(p, 6)
+            vl_pis = _get(current_d101, 7) if current_d101 else "0"
+            vl_bc_cof = _get(p, 6)
             vl_cof = _get(p, 8)
 
             if _to_float(vl_pis) > 0.0 or _to_float(vl_cof) > 0.0:
