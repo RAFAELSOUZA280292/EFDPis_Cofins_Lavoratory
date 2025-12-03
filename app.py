@@ -1,21 +1,17 @@
 """
-LavoraTAX Advisor – EFD PIS/COFINS (Versão 2.2 - Executiva)
-===========================================================
+LaboraTAX Advisor – EFD PIS/COFINS (Versão 3.0 - Premium Executiva)
+====================================================================
 
-Painel executivo para análise consolidada de créditos de PIS/COFINS.
+Painel executivo premium para análise consolidada de créditos de PIS/COFINS.
 Otimizado para CEO, CFO, Diretores Tributários e Financeiros.
 
-Principais melhorias:
-* Design moderno e profissional com tema executivo
-* KPIs destacados e visualizações de impacto
-* Navegação intuitiva e responsiva
-* Gráficos interativos com Plotly
-* Tabelas filtráveis e exportáveis
-* Consolidação inteligente de múltiplos SPEDs
+Principais melhorias v3.0:
+* UX de carregamento moderna com animações
+* Filtros avançados com opção "Todos"
+* Tabela C100/C170 enriquecida com fornecedor, NCM e descrição
+* Ranking de créditos por NCM
+* Design executivo premium
 * Performance otimizada com cache
-* **FIX:** Formatação de moeda brasileira nas tabelas
-* **NEW:** Consolidação de créditos de NF-e (C100/C170) por CFOP mapeado
-* **NEW:** Filtros de Competência e Empresa com exibição no cabeçalho
 """
 
 import io
@@ -35,20 +31,20 @@ from parser_pis_cofins import parse_efd_piscofins
 # =============================================================================
 
 st.set_page_config(
-    page_title="LavoraTAX Advisor – EFD PIS/COFINS",
+    page_title="LaboraTAX Advisor – EFD PIS/COFINS",
     page_icon="📊",
     layout="wide",
     initial_sidebar_state="expanded",
 )
 
 # =============================================================================
-# TEMA E ESTILO CUSTOMIZADO (EXECUTIVO)
+# TEMA E ESTILO CUSTOMIZADO (PREMIUM EXECUTIVO)
 # =============================================================================
 
 st.markdown(
     """
     <style>
-    /* Variáveis de cor executiva */
+    /* Variáveis de cor executiva premium */
     :root {
         --primary: #1e3a8a;      /* Azul profundo */
         --secondary: #0f766e;    /* Verde teal */
@@ -237,6 +233,58 @@ st.markdown(
         color: #1e3a8a;
     }
 
+    /* Loading card */
+    .loading-card {
+        background: white;
+        border-radius: 10px;
+        padding: 2rem;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+        margin: 1rem 0;
+        text-align: center;
+    }
+
+    .loading-spinner {
+        display: inline-block;
+        width: 40px;
+        height: 40px;
+        border: 4px solid #e2e8f0;
+        border-top: 4px solid #1e3a8a;
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+    }
+
+    @keyframes spin {
+        0% { transform: rotate(0deg); }
+        100% { transform: rotate(360deg); }
+    }
+
+    /* Ranking cards */
+    .ranking-card {
+        background: linear-gradient(135deg, #1e3a8a 0%, #0f766e 100%);
+        color: white;
+        border-radius: 10px;
+        padding: 1.5rem;
+        margin: 0.5rem 0;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    }
+
+    .ranking-number {
+        font-size: 2rem;
+        font-weight: 700;
+        margin-bottom: 0.5rem;
+    }
+
+    .ranking-label {
+        font-size: 0.875rem;
+        opacity: 0.9;
+        margin-bottom: 0.25rem;
+    }
+
+    .ranking-value {
+        font-size: 1.5rem;
+        font-weight: 700;
+    }
+
     </style>
     """,
     unsafe_allow_html=True,
@@ -421,8 +469,8 @@ def parse_file(uploaded_file) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame,
 st.markdown(
     """
     <div class="header-main">
-        <h1>📊 LavoraTAX Advisor</h1>
-        <p>Análise Executiva de Créditos PIS/COFINS – EFD Contribuições</p>
+        <h1>📊 LaboraTAX Advisor</h1>
+        <p>Análise Executiva Premium de Créditos PIS/COFINS – EFD Contribuições</p>
     </div>
     """,
     unsafe_allow_html=True,
@@ -459,7 +507,7 @@ if len(uploaded_files) > 12:
     st.stop()
 
 # =============================================================================
-# PROCESSAMENTO DOS ARQUIVOS
+# PROCESSAMENTO DOS ARQUIVOS COM UX MELHORADA
 # =============================================================================
 
 dfs_c100: List[pd.DataFrame] = []
@@ -468,12 +516,35 @@ dfs_ap: List[pd.DataFrame] = []
 dfs_cred: List[pd.DataFrame] = []
 files_info = []
 
-progress_bar = st.progress(0)
-status_text = st.empty()
+# Container para exibir o progresso
+progress_container = st.container()
+
+with progress_container:
+    st.markdown("<h3 class='subsection-title'>⏳ Processando Arquivos...</h3>", unsafe_allow_html=True)
+    
+    # Grid de cards de progresso
+    cols = st.columns(min(3, len(uploaded_files)))
+    progress_cards = [cols[i % len(cols)].empty() for i in range(len(uploaded_files))]
+    
+    progress_bar = st.progress(0)
+    status_text = st.empty()
 
 for idx, f in enumerate(uploaded_files):
     try:
-        status_text.text(f"Processando arquivo {idx + 1}/{len(uploaded_files)}: {f.name}")
+        status_text.text(f"Processando: {f.name}")
+        
+        # Atualiza card de progresso
+        with progress_cards[idx]:
+            st.markdown(
+                f"""
+                <div class="loading-card">
+                    <div style="font-size: 1.5rem; margin-bottom: 0.5rem;">📄 {f.name}</div>
+                    <div style="color: #0f766e; font-weight: 600;">Processando...</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+        
         df_c100_file, df_outros_file, df_ap_file, df_cred_file, comp, emp = parse_file(f)
 
         if not df_c100_file.empty:
@@ -493,9 +564,31 @@ for idx, f in enumerate(uploaded_files):
             dfs_cred.append(df_cred_file)
 
         files_info.append({"arquivo": f.name, "competencia": comp, "empresa": emp})
+        
+        # Atualiza card com sucesso
+        with progress_cards[idx]:
+            st.markdown(
+                f"""
+                <div class="loading-card" style="background: linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%);">
+                    <div style="font-size: 1.5rem; margin-bottom: 0.5rem;">✅ {f.name}</div>
+                    <div style="color: #16a34a; font-weight: 600;">{comp} - {emp}</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
 
     except Exception as e:
         st.error(f"❌ Erro ao processar {f.name}: {str(e)}")
+        with progress_cards[idx]:
+            st.markdown(
+                f"""
+                <div class="loading-card" style="background: linear-gradient(135deg, #fef2f2 0%, #fee2e2 100%);">
+                    <div style="font-size: 1.5rem; margin-bottom: 0.5rem;">❌ {f.name}</div>
+                    <div style="color: #dc2626; font-weight: 600;">Erro no processamento</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
 
     progress_bar.progress((idx + 1) / len(uploaded_files))
 
@@ -518,7 +611,7 @@ empresas_disponiveis.sort()
 # Exibir informacoes dos arquivos carregados
 if files_info:
     st.markdown("<div class='divider'></div>", unsafe_allow_html=True)
-    st.markdown("### 📋 Arquivos Carregados", unsafe_allow_html=True)
+    st.markdown("### 📋 Arquivos Carregados com Sucesso", unsafe_allow_html=True)
     
     col_comp, col_emp = st.columns(2)
     
@@ -530,24 +623,30 @@ if files_info:
     
     st.markdown("<div class='divider'></div>", unsafe_allow_html=True)
     
-    # Filtros de Competencia e Empresa
-    st.markdown("### 🔍 Filtros de Análise", unsafe_allow_html=True)
+    # Filtros de Competencia e Empresa APRIMORADOS
+    st.markdown("### 🔍 Filtros de Análise Avançados", unsafe_allow_html=True)
     
     col_filter_comp, col_filter_emp = st.columns(2)
     
     with col_filter_comp:
+        comp_options = ["📊 Todas as Competências"] + competencias_disponiveis
         competencia_selecionada = st.selectbox(
             "Selecione a Competência:",
-            competencias_disponiveis,
+            comp_options,
             key="filter_competencia"
         )
+        if competencia_selecionada == "📊 Todas as Competências":
+            competencia_selecionada = None
     
     with col_filter_emp:
+        emp_options = ["🏢 Todas as Empresas"] + empresas_disponiveis
         empresa_selecionada = st.selectbox(
             "Selecione a Empresa:",
-            empresas_disponiveis,
+            emp_options,
             key="filter_empresa"
         )
+        if empresa_selecionada == "🏢 Todas as Empresas":
+            empresa_selecionada = None
     
     st.markdown("<div class='divider'></div>", unsafe_allow_html=True)
 else:
@@ -570,6 +669,24 @@ if competencia_selecionada and empresa_selecionada:
         df_ap = df_ap[(df_ap["COMPETENCIA"] == competencia_selecionada) & (df_ap["EMPRESA"] == empresa_selecionada)]
     if not df_cred.empty:
         df_cred = df_cred[(df_cred["COMPETENCIA"] == competencia_selecionada) & (df_cred["EMPRESA"] == empresa_selecionada)]
+elif competencia_selecionada:
+    if not df_c100.empty:
+        df_c100 = df_c100[df_c100["COMPETENCIA"] == competencia_selecionada]
+    if not df_outros.empty:
+        df_outros = df_outros[df_outros["COMPETENCIA"] == competencia_selecionada]
+    if not df_ap.empty:
+        df_ap = df_ap[df_ap["COMPETENCIA"] == competencia_selecionada]
+    if not df_cred.empty:
+        df_cred = df_cred[df_cred["COMPETENCIA"] == competencia_selecionada]
+elif empresa_selecionada:
+    if not df_c100.empty:
+        df_c100 = df_c100[df_c100["EMPRESA"] == empresa_selecionada]
+    if not df_outros.empty:
+        df_outros = df_outros[df_outros["EMPRESA"] == empresa_selecionada]
+    if not df_ap.empty:
+        df_ap = df_ap[df_ap["EMPRESA"] == empresa_selecionada]
+    if not df_cred.empty:
+        df_cred = df_cred[df_cred["EMPRESA"] == empresa_selecionada]
 
 # =============================================================================
 # CONVERSÃO NUMÉRICA
@@ -781,29 +898,101 @@ with tab_exec:
 with tab_docs:
     st.markdown("<h2 class='section-title'>📋 Detalhamento Técnico</h2>", unsafe_allow_html=True)
 
-    # NF-e de entrada
-    st.markdown("<h3 class='subsection-title'>NF-e de Entrada (C100/C170)</h3>", unsafe_allow_html=True)
+    # NF-e de entrada ENRIQUECIDA
+    st.markdown("<h3 class='subsection-title'>NF-e de Entrada (C100/C170) - Análise Detalhada</h3>", unsafe_allow_html=True)
 
     if df_c100.empty:
         st.info("ℹ️ Nenhum registro C100/C170 foi identificado.")
     else:
         st.metric("Total de linhas de NF-e", len(df_c100))
         
-        # Seleciona apenas colunas numéricas para formatação
-        cols_to_display = ["COMPETENCIA", "EMPRESA", "NUM_DOC", "DT_DOC", "COD_PART", "CFOP"]
-        numeric_cols = ["VL_BC_PIS", "VL_PIS", "VL_BC_COFINS", "VL_COFINS"]
+        # Colunas a exibir na tabela principal
+        cols_to_display = [
+            "DT_DOC", "NUM_DOC", "NOME_PART", "NCM", "DESCR_ITEM",
+            "VL_BC_PIS", "VL_PIS", "VL_BC_COFINS", "VL_COFINS"
+        ]
         
-        # Adiciona colunas que existem
-        for col in numeric_cols:
-            if col in df_c100.columns:
-                cols_to_display.append(col)
+        # Filtra apenas colunas que existem
+        cols_to_display = [col for col in cols_to_display if col in df_c100.columns]
         
         df_c100_display = df_c100[cols_to_display].copy()
+        
+        # Renomeia para melhor legibilidade
+        df_c100_display = df_c100_display.rename(columns={
+            "DT_DOC": "Data Emissão",
+            "NUM_DOC": "NF",
+            "NOME_PART": "Fornecedor",
+            "NCM": "NCM",
+            "DESCR_ITEM": "Descrição",
+            "VL_BC_PIS": "BC PIS",
+            "VL_PIS": "Valor PIS",
+            "VL_BC_COFINS": "BC COFINS",
+            "VL_COFINS": "Valor COFINS"
+        })
+        
         st.dataframe(
             format_df_currency(df_c100_display),
             use_container_width=True,
             height=400,
         )
+
+        # RANKING DE CRÉDITOS POR NCM
+        st.markdown("<div class='divider'></div>", unsafe_allow_html=True)
+        st.markdown("<h3 class='subsection-title'>🏆 Ranking de Créditos por NCM</h3>", unsafe_allow_html=True)
+        
+        # Calcula ranking
+        if "NCM" in df_c100.columns:
+            df_ranking_ncm = df_c100.groupby("NCM", as_index=False).agg({
+                "VL_PIS_NUM": "sum",
+                "VL_COFINS_NUM": "sum",
+                "DESCR_ITEM": "first"
+            }).rename(columns={
+                "VL_PIS_NUM": "Total_PIS",
+                "VL_COFINS_NUM": "Total_COFINS",
+                "DESCR_ITEM": "Descricao"
+            })
+            
+            df_ranking_ncm["Total_Creditos"] = df_ranking_ncm["Total_PIS"] + df_ranking_ncm["Total_COFINS"]
+            df_ranking_ncm = df_ranking_ncm.sort_values("Total_Creditos", ascending=False).head(10)
+            
+            # Exibe em cards de ranking
+            cols_ranking = st.columns(min(3, len(df_ranking_ncm)))
+            
+            for idx, (_, row) in enumerate(df_ranking_ncm.iterrows()):
+                with cols_ranking[idx % len(cols_ranking)]:
+                    st.markdown(
+                        f"""
+                        <div class="ranking-card">
+                            <div class="ranking-number">#{idx + 1}</div>
+                            <div class="ranking-label">NCM: {row['NCM']}</div>
+                            <div class="ranking-label" style="font-size: 0.75rem;">{row['Descricao'][:40]}...</div>
+                            <div class="ranking-value">{format_currency(row['Total_Creditos'])}</div>
+                            <div class="ranking-label" style="font-size: 0.75rem; margin-top: 0.5rem;">
+                                PIS: {format_currency(row['Total_PIS'])} | COFINS: {format_currency(row['Total_COFINS'])}
+                            </div>
+                        </div>
+                        """,
+                        unsafe_allow_html=True,
+                    )
+            
+            # Tabela completa de ranking
+            st.markdown("<div class='divider'></div>", unsafe_allow_html=True)
+            st.markdown("<h4>Tabela Completa de NCMs</h4>", unsafe_allow_html=True)
+            
+            df_ranking_display = df_ranking_ncm.copy()
+            df_ranking_display = df_ranking_display.rename(columns={
+                "NCM": "NCM",
+                "Descricao": "Descrição",
+                "Total_PIS": "Total PIS",
+                "Total_COFINS": "Total COFINS",
+                "Total_Creditos": "Total Créditos"
+            })
+            
+            st.dataframe(
+                format_df_currency(df_ranking_display),
+                use_container_width=True,
+                height=300,
+            )
 
     st.markdown("<div class='divider'></div>", unsafe_allow_html=True)
 
@@ -1007,7 +1196,7 @@ with tab_export:
     st.download_button(
         label="📥 Baixar Relatório Completo (Excel)",
         data=buffer,
-        file_name="LavoraTAX_Relatorio_PIS_COFINS.xlsx",
+        file_name="LaboraTAX_Relatorio_PIS_COFINS.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )
 
