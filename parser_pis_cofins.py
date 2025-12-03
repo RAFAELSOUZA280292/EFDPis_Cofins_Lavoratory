@@ -1,112 +1,134 @@
-import zipfile
+# parser_pis_cofins.py
+"""
+Parser de EFD PIS/COFINS focado em créditos de entradas
+(C100/C170, A100/A170, C500/C501/C505, D100/D101/D105, F100/F120)
+e nos registros de apuração de PIS (M200) e créditos PIS (M105).
+
+Pensado para trabalhar em conjunto com o app Streamlit (app.py).
+"""
+
 import io
+import zipfile
+from typing import Tuple, List, Dict
+
 import pandas as pd
 
-# -----------------------------------------------------------
-# Helpers
-# -----------------------------------------------------------
 
-def _to_str(val):
-    if val is None:
+def _to_str(v) -> str:
+    if v is None:
         return ""
-    return str(val).strip()
+    return str(v).strip()
 
-def _to_float(val):
+
+def _to_float(v) -> float:
     try:
-        val = str(val).strip().replace(".", "").replace(",", ".")
-        return float(val)
-    except:
+        s = str(v).strip()
+        if s == "":
+            return 0.0
+        s = s.replace(".", "").replace(",", ".")
+        return float(s)
+    except Exception:
         return 0.0
 
-def _decode_bytes(b):
+
+def _decode_bytes(b: bytes) -> str:
     try:
         return b.decode("utf-8")
-    except:
-        return b.decode("latin-1")
+    except UnicodeDecodeError:
+        return b.decode("latin-1", errors="ignore")
 
 
-def _extract_txt_from_zip(uploaded_file):
-    txt_lines = []
+def _extract_txt_from_zip(uploaded_file) -> List[str]:
+    lines: List[str] = []
     with zipfile.ZipFile(uploaded_file) as zf:
         for name in zf.namelist():
             if name.lower().endswith(".txt"):
-                txt = zf.read(name)
-                decoded = _decode_bytes(txt)
-                lines = decoded.splitlines()
-                txt_lines.extend(lines)
-    return txt_lines
+                raw = zf.read(name)
+                decoded = _decode_bytes(raw)
+                lines.extend(decoded.splitlines())
+    return lines
 
 
-def load_efd_from_upload(uploaded_file):
+def load_efd_from_upload(uploaded_file) -> List[str]:
+    """
+    Recebe um arquivo subido no Streamlit (txt ou zip) e devolve
+    a lista de linhas do(s) arquivo(s) .txt contido(s).
+    """
     name = uploaded_file.name.lower()
+    raw = uploaded_file.read()
+
     if name.endswith(".zip"):
-        return _extract_txt_from_zip(uploaded_file)
-    elif name.endswith(".txt"):
-        content = uploaded_file.read()
-        decoded = _decode_bytes(content)
+        buffer = io.BytesIO(raw)
+        return _extract_txt_from_zip(buffer)
+
+    if name.endswith(".txt"):
+        decoded = _decode_bytes(raw)
         return decoded.splitlines()
-    else:
-        raise ValueError("Formato inválido. Envie .txt ou .zip contendo .txt")
+
+    raise ValueError("Arquivo inválido. Envie .txt ou .zip contendo .txt de EFD PIS/COFINS.")
 
 
-# -----------------------------------------------------------
-# Metadata extractors
-# -----------------------------------------------------------
-
-def _extract_metadata_0000(lines):
+def _extract_0000_metadata(lines: List[str]) -> Tuple[str, str]:
     """
-    Retorna (competencia, empresa)
+    Extrai COMPETENCIA (MM/AAAA) e NOME da empresa do registro 0000.
     """
-    competencia = "00/0000"
+    competencia = ""
     empresa = ""
     for line in lines:
-        p = line.split("|")
-        if len(p) > 9 and p[1] == "0000":
-            dt_ini = p[6]  # ddmmaaaa
+        p = line.strip().split("|")
+        if len(p) < 9:
+            continue
+        if p[1] == "0000":
+            dt_ini = _to_str(p[6])
             if len(dt_ini) == 8:
                 competencia = dt_ini[2:4] + "/" + dt_ini[4:]
-            empresa = p[7]
+            empresa = _to_str(p[7])
             break
     return competencia, empresa
 
-def _build_maps(lines):
-    """
-    Cria mapas:
-    0150 - participantes
-    0200 - itens (NCM)
-    """
-    map_part = {}
-    map_item_ncm = {}
 
-    for l in lines:
-        p = l.split("|")
+def _build_maps(lines: List[str]) -> Tuple[Dict[str, str], Dict[str, str]]:
+    """
+    Cria:
+    - map_part_nome: COD_PART -> NOME (0150)
+    - map_coditem_ncm: COD_ITEM -> NCM (0200)
+    """
+    map_part_nome: Dict[str, str] = {}
+    map_coditem_ncm: Dict[str, str] = {}
+
+    for line in lines:
+        p = line.strip().split("|")
         if len(p) < 3:
             continue
-
         reg = p[1]
 
-        # Registro 0150 - Participante
         if reg == "0150":
-            cod = p[2]
-            nome = p[3] if len(p) > 3 else ""
-            map_part[cod] = nome
+            cod_part = _to_str(p[2])
+            nome = _to_str(p[3]) if len(p) > 3 else ""
+            if cod_part:
+                map_part_nome[cod_part] = nome
 
-        # Registro 0200 - Itens
         if reg == "0200":
-            cod_item = p[2]
-            ncm = p[7] if len(p) > 7 else ""
-            map_item_ncm[cod_item] = ncm
+            cod_item = _to_str(p[2])
+            ncm = _to_str(p[7]) if len(p) > 7 else ""
+            if cod_item:
+                map_coditem_ncm[cod_item] = ncm
 
-    return map_part, map_item_ncm
+    return map_part_nome, map_coditem_ncm
 
 
-# ===========================================================
-# PARSER PRINCIPAL
-# ===========================================================
+def parse_efd_piscofins(lines: List[str]):
+    """
+    Faz o parsing das linhas de EFD PIS/COFINS e retorna:
 
-def parse_efd_piscofins(lines):
-    competencia, empresa = _extract_metadata_0000(lines)
-    map_part_nome, map_item_ncm = _build_maps(lines)
+    df_c100:   detalhamento de NF-e de entrada (C100/C170)
+    df_outros: créditos de serviços, energia, fretes, F100/F120 etc.
+    df_ap_pis: M200
+    df_cred_pis: M105
+    competencia, empresa
+    """
+    competencia, empresa = _extract_0000_metadata(lines)
+    map_part_nome, map_coditem_ncm = _build_maps(lines)
 
     records_c100 = []
     records_out = []
@@ -119,39 +141,44 @@ def parse_efd_piscofins(lines):
     current_d100 = None
     current_f100 = None
 
-    # Acumuladores energia elétrica
-    c500_bc_pis = 0.0
-    c500_aliq_pis = 0.0
-    c500_vl_pis = 0.0
+    # Acumuladores de energia elétrica (C500/C501/C505)
+    c500_pis_bc = 0.0
+    c500_pis_aliq = 0.0
+    c500_pis_val = 0.0
 
-    c500_bc_cof = 0.0
-    c500_aliq_cof = 0.0
-    c500_vl_cof = 0.0
+    c500_cof_bc = 0.0
+    c500_cof_aliq = 0.0
+    c500_cof_val = 0.0
+
+    def _get(p, idx, default=""):
+        try:
+            return p[idx]
+        except IndexError:
+            return default
 
     def finalize_c500():
-        nonlocal c500_bc_pis, c500_aliq_pis, c500_vl_pis
-        nonlocal c500_bc_cof, c500_aliq_cof, c500_vl_cof
-        nonlocal current_c500
+        nonlocal current_c500, c500_pis_bc, c500_pis_aliq, c500_pis_val
+        nonlocal c500_cof_bc, c500_cof_aliq, c500_cof_val
 
         if current_c500 is None:
             return
 
         if (
-            c500_bc_pis == 0
-            and c500_vl_pis == 0
-            and c500_bc_cof == 0
-            and c500_vl_cof == 0
+            c500_pis_bc == 0.0
+            and c500_pis_val == 0.0
+            and c500_cof_bc == 0.0
+            and c500_cof_val == 0.0
         ):
+            # nada a gravar
             current_c500 = None
-            c500_bc_pis = c500_aliq_pis = c500_vl_pis = 0.0
-            c500_bc_cof = c500_aliq_cof = c500_vl_cof = 0.0
+            c500_pis_bc = c500_pis_aliq = c500_pis_val = 0.0
+            c500_cof_bc = c500_cof_aliq = c500_cof_val = 0.0
             return
 
-        p = current_c500
-        cod_part = p[4]
-        num_doc = p[8]
-        dt_doc = p[9]
-        vl_doc = p[11]
+        cod_part = _get(current_c500, 4)
+        num_doc = _get(current_c500, 8)
+        dt_doc = _get(current_c500, 9)
+        vl_doc = _get(current_c500, 11)
 
         records_out.append(
             {
@@ -165,70 +192,67 @@ def parse_efd_piscofins(lines):
                 "VL_DOC": vl_doc,
                 "CFOP": "",
                 "CST_PIS": "",
-                "VL_BC_PIS": c500_bc_pis,
-                "ALIQ_PIS": c500_aliq_pis,
-                "VL_PIS": c500_vl_pis,
+                "VL_BC_PIS": c500_pis_bc,
+                "ALIQ_PIS": c500_pis_aliq,
+                "VL_PIS": c500_pis_val,
                 "CST_COFINS": "",
-                "VL_BC_COFINS": c500_bc_cof,
-                "ALIQ_COFINS": c500_aliq_cof,
-                "VL_COFINS": c500_vl_cof,
+                "VL_BC_COFINS": c500_cof_bc,
+                "ALIQ_COFINS": c500_cof_aliq,
+                "VL_COFINS": c500_cof_val,
             }
         )
 
         current_c500 = None
-        c500_bc_pis = c500_aliq_pis = c500_vl_pis = 0.0
-        c500_bc_cof = c500_aliq_cof = c500_vl_cof = 0.0
-
+        c500_pis_bc = c500_pis_aliq = c500_pis_val = 0.0
+        c500_cof_bc = c500_cof_aliq = c500_cof_val = 0.0
 
     # Loop principal
     for line in lines:
-        p = line.split("|")
-        if len(p) < 2:
+        p = line.strip().split("|")
+        if len(p) < 3:
             continue
-
         reg = p[1]
 
-        # ------------------------ C100 ------------------------
+        # ------------ C100 / C170 (NF-e entradas) ------------
         if reg == "C100":
             current_c100 = p
             continue
 
-        # ------------------------ C170 ------------------------
         if reg == "C170" and current_c100:
-            ind_oper = current_c100[4]  # 0 = entrada
+            ind_oper = _get(current_c100, 2)  # 0=entrada, 1=saída
             if ind_oper != "0":
+                # só entradas geram crédito de PIS/COFINS
                 continue
 
-            cod_part = current_c100[3]
-            modelo = current_c100[5]
-            sit = current_c100[6]
-            num_doc = current_c100[8]
-            dt_doc = current_c100[9]
-            dt_entr = current_c100[10]
-            vl_doc = current_c100[11]
+            cod_part = _get(current_c100, 4)
+            modelo = _get(current_c100, 5)
+            situacao = _get(current_c100, 9)
+            num_doc = _get(current_c100, 8)
+            dt_doc = _get(current_c100, 10)
+            dt_entr = _get(current_c100, 11)
+            vl_doc = _get(current_c100, 12)
 
-            num_item = p[2]
-            cod_item = p[3]
-            descr_item = p[4]
-            cfop = p[11]
+            # C170
+            num_item = _get(p, 2)
+            cod_item = _get(p, 3)
+            descr_item = _get(p, 4)
+            cfop = _get(p, 11)
 
-            # PIS campos
-            cst_pis = p[12]
-            vl_bc_pis = p[13]
-            aliq_pis = p[14]
-            vl_pis = p[15]
+            cst_pis = _get(p, 12)
+            vl_bc_pis = _get(p, 13)
+            aliq_pis = _get(p, 14)
+            vl_pis = _get(p, 15)
 
-            # COFINS campos
-            cst_cof = p[18]
-            vl_bc_cof = p[19]
-            aliq_cof = p[20]
-            vl_cof = p[21]
+            cst_cof = _get(p, 18)
+            vl_bc_cof = _get(p, 19)
+            aliq_cof = _get(p, 20)
+            vl_cof = _get(p, 21)
 
             if (
-                _to_float(vl_bc_pis) == 0
-                and _to_float(vl_pis) == 0
-                and _to_float(vl_bc_cof) == 0
-                and _to_float(vl_cof) == 0
+                _to_float(vl_pis) == 0.0
+                and _to_float(vl_cof) == 0.0
+                and _to_float(vl_bc_pis) == 0.0
+                and _to_float(vl_bc_cof) == 0.0
             ):
                 continue
 
@@ -236,19 +260,20 @@ def parse_efd_piscofins(lines):
                 {
                     "COMPETENCIA": competencia,
                     "EMPRESA": empresa,
-                    "DOC": num_doc,
-                    "DT_DOC": dt_doc,
-                    "DT_ENTR": dt_entr,
+                    "IND_OPER": ind_oper,
                     "COD_PART": cod_part,
                     "NOME_PART": map_part_nome.get(cod_part, ""),
                     "MODELO": modelo,
-                    "SIT": sit,
-                    "COD_ITEM": cod_item,
-                    "NCM": map_item_ncm.get(cod_item, ""),
-                    "DESCR_ITEM": descr_item,
-                    "CFOP": cfop,
-                    "NUM_ITEM": num_item,
+                    "SIT_DOC": situacao,
+                    "NUM_DOC": num_doc,
+                    "DT_DOC": dt_doc,
+                    "DT_ENTR": dt_entr,
                     "VL_DOC": vl_doc,
+                    "NUM_ITEM": num_item,
+                    "COD_ITEM": cod_item,
+                    "DESCR_ITEM": descr_item,
+                    "NCM": map_coditem_ncm.get(cod_item, ""),
+                    "CFOP": cfop,
                     "CST_PIS": cst_pis,
                     "VL_BC_PIS": vl_bc_pis,
                     "ALIQ_PIS": aliq_pis,
@@ -261,34 +286,36 @@ def parse_efd_piscofins(lines):
             )
             continue
 
-        # ------------------------ A100 ------------------------
+        # ------------ A100 / A170 (serviços tomados) ------------
         if reg == "A100":
             current_a100 = p
             continue
 
-        # ------------------------ A170 (CORRIGIDO) ------------------------
         if reg == "A170" and current_a100:
-            cod_part = current_a100[4]
-            num_doc = current_a100[8]
-            dt_doc = current_a100[9]
-            vl_doc = current_a100[11]
+            cod_part = _get(current_a100, 4)
+            num_doc = _get(current_a100, 8)
+            dt_doc = _get(current_a100, 9)
+            vl_doc = _get(current_a100, 11)
 
-            # Layout oficial A170
-            cst_pis = p[9]
-            vl_bc_pis = p[10]
-            aliq_pis = p[11]
-            vl_pis = p[12]
+            # A170 (layout oficial GP 1.35):
+            # 09 CST_PIS, 10 VL_BC_PIS, 11 ALIQ_PIS, 12 VL_PIS
+            # 13 CST_COFINS, 14 VL_BC_COFINS, 15 ALIQ_COFINS, 16 VL_COFINS
+            cfop = ""  # A170 não possui CFOP próprio
+            cst_pis = _get(p, 9)
+            vl_bc_pis = _get(p, 10)
+            aliq_pis = _get(p, 11)
+            vl_pis = _get(p, 12)
 
-            cst_cof = p[13]
-            vl_bc_cof = p[14]
-            aliq_cof = p[15]
-            vl_cof = p[16]
+            cst_cof = _get(p, 13)
+            vl_bc_cof = _get(p, 14)
+            aliq_cof = _get(p, 15)
+            vl_cof = _get(p, 16)
 
             if (
-                _to_float(vl_bc_pis) == 0
-                and _to_float(vl_pis) == 0
-                and _to_float(vl_bc_cof) == 0
-                and _to_float(vl_cof) == 0
+                _to_float(vl_pis) == 0.0
+                and _to_float(vl_cof) == 0.0
+                and _to_float(vl_bc_pis) == 0.0
+                and _to_float(vl_bc_cof) == 0.0
             ):
                 continue
 
@@ -302,7 +329,7 @@ def parse_efd_piscofins(lines):
                     "COD_PART": cod_part,
                     "NOME_PART": map_part_nome.get(cod_part, ""),
                     "VL_DOC": vl_doc,
-                    "CFOP": "",
+                    "CFOP": cfop,
                     "CST_PIS": cst_pis,
                     "VL_BC_PIS": vl_bc_pis,
                     "ALIQ_PIS": aliq_pis,
@@ -315,44 +342,46 @@ def parse_efd_piscofins(lines):
             )
             continue
 
-        # ------------------------ C500 ------------------------
+        # ------------ C500 / C501 / C505 (energia elétrica) ------------
         if reg == "C500":
             finalize_c500()
             current_c500 = p
             continue
 
-        # ------------------------ C501 (PIS energia) ------------------------
         if reg == "C501":
-            c500_bc_pis += _to_float(p[7])
-            c500_aliq_pis = _to_float(p[8])
-            c500_vl_pis += _to_float(p[9])
+            c500_pis_bc += _to_float(_get(p, 7))
+            c500_pis_aliq = _to_float(_get(p, 8))
+            c500_pis_val += _to_float(_get(p, 9))
             continue
 
-        # ------------------------ C505 (COFINS energia) ------------------------
         if reg == "C505":
-            c500_bc_cof += _to_float(p[7])
-            c500_aliq_cof = _to_float(p[8])
-            c500_vl_cof += _to_float(p[9])
+            c500_cof_bc += _to_float(_get(p, 7))
+            c500_cof_aliq = _to_float(_get(p, 8))
+            c500_cof_val += _to_float(_get(p, 9))
             continue
 
-        # ------------------------ D100 ------------------------
+        # ------------ D100 / D101 / D105 (fretes / CT-e) ------------
         if reg == "D100":
             current_d100 = p
             continue
 
-        # ------------------------ D101 (PIS frete) ------------------------
-        if reg == "D101" and current_d100:
-            cod_part = current_d100[4]
-            num_doc = current_d100[7]
-            dt_doc = current_d100[8]
-            vl_doc = current_d100[9]
+        if reg == "D101":
+            try:
+                d100 = current_d100  # type: ignore[name-defined]
+            except NameError:
+                continue
 
-            cst_pis = p[2]
-            vl_bc_pis = p[3]
-            aliq_pis = p[4]
-            vl_pis = p[5]
+            cod_part = _get(d100, 4)
+            num_doc = _get(d100, 8)
+            dt_doc = _get(d100, 10)
+            vl_doc = _get(d100, 12)
 
-            if _to_float(vl_pis) == 0 and _to_float(vl_bc_pis) == 0:
+            cst_pis = _get(p, 3)
+            vl_bc_pis = _get(p, 4)
+            aliq_pis = _get(p, 5)
+            vl_pis = _get(p, 6)
+
+            if _to_float(vl_pis) == 0.0 and _to_float(vl_bc_pis) == 0.0:
                 continue
 
             records_out.append(
@@ -371,26 +400,30 @@ def parse_efd_piscofins(lines):
                     "ALIQ_PIS": aliq_pis,
                     "VL_PIS": vl_pis,
                     "CST_COFINS": "",
-                    "VL_BC_COFINS": 0,
-                    "ALIQ_COFINS": 0,
-                    "VL_COFINS": 0,
+                    "VL_BC_COFINS": 0.0,
+                    "ALIQ_COFINS": 0.0,
+                    "VL_COFINS": 0.0,
                 }
             )
             continue
 
-        # ------------------------ D105 (COFINS frete) ------------------------
-        if reg == "D105" and current_d100:
-            cod_part = current_d100[4]
-            num_doc = current_d100[7]
-            dt_doc = current_d100[8]
-            vl_doc = current_d100[9]
+        if reg == "D105":
+            try:
+                d100 = current_d100  # type: ignore[name-defined]
+            except NameError:
+                continue
 
-            cst_cof = p[2]
-            vl_bc_cof = p[3]
-            aliq_cof = p[4]
-            vl_cof = p[5]
+            cod_part = _get(d100, 4)
+            num_doc = _get(d100, 8)
+            dt_doc = _get(d100, 10)
+            vl_doc = _get(d100, 12)
 
-            if _to_float(vl_cof) == 0 and _to_float(vl_bc_cof) == 0:
+            cst_cof = _get(p, 3)
+            vl_bc_cof = _get(p, 4)
+            aliq_cof = _get(p, 5)
+            vl_cof = _get(p, 6)
+
+            if _to_float(vl_cof) == 0.0 and _to_float(vl_bc_cof) == 0.0:
                 continue
 
             records_out.append(
@@ -405,9 +438,9 @@ def parse_efd_piscofins(lines):
                     "VL_DOC": vl_doc,
                     "CFOP": "",
                     "CST_PIS": "",
-                    "VL_BC_PIS": 0,
-                    "ALIQ_PIS": 0,
-                    "VL_PIS": 0,
+                    "VL_BC_PIS": 0.0,
+                    "ALIQ_PIS": 0.0,
+                    "VL_PIS": 0.0,
                     "CST_COFINS": cst_cof,
                     "VL_BC_COFINS": vl_bc_cof,
                     "ALIQ_COFINS": aliq_cof,
@@ -416,33 +449,40 @@ def parse_efd_piscofins(lines):
             )
             continue
 
-        # ------------------------ F100 ------------------------
+        # ------------ F100 / F120 (demais docs / créditos) ------------
         if reg == "F100":
             current_f100 = p
             continue
 
-        # ------------------------ F120 (CORRIGIDO) ------------------------
-        if reg == "F120" and current_f100:
-            cod_part = current_f100[3]
-            num_doc = current_f100[5]
-            dt_doc = current_f100[6]
-            vl_doc = current_f100[7]
+        if reg == "F120":
+            try:
+                f100 = current_f100  # type: ignore[name-defined]
+            except NameError:
+                continue
 
-            cst_pis = p[8]
-            vl_bc_pis = p[9]
-            aliq_pis = p[10]
-            vl_pis = p[11]
+            cod_part = _get(f100, 3)
+            num_doc = _get(f100, 5)
+            dt_doc = _get(f100, 6)
+            vl_doc = _get(f100, 7)
 
-            cst_cof = p[12]
-            vl_bc_cof = p[13]
-            aliq_cof = p[14]
-            vl_cof = p[15]
+            # F120 (layout oficial):
+            # 08 CST_PIS, 09 VL_BC_PIS, 10 ALIQ_PIS, 11 VL_PIS
+            # 12 CST_COFINS, 13 VL_BC_COFINS, 14 ALIQ_COFINS, 15 VL_COFINS
+            cst_pis = _get(p, 8)
+            vl_bc_pis = _get(p, 9)
+            aliq_pis = _get(p, 10)
+            vl_pis = _get(p, 11)
+
+            cst_cof = _get(p, 12)
+            vl_bc_cof = _get(p, 13)
+            aliq_cof = _get(p, 14)
+            vl_cof = _get(p, 15)
 
             if (
-                _to_float(vl_bc_pis) == 0
-                and _to_float(vl_pis) == 0
-                and _to_float(vl_bc_cof) == 0
-                and _to_float(vl_cof) == 0
+                _to_float(vl_pis) == 0.0
+                and _to_float(vl_cof) == 0.0
+                and _to_float(vl_bc_pis) == 0.0
+                and _to_float(vl_bc_cof) == 0.0
             ):
                 continue
 
@@ -456,7 +496,6 @@ def parse_efd_piscofins(lines):
                     "COD_PART": cod_part,
                     "NOME_PART": map_part_nome.get(cod_part, ""),
                     "VL_DOC": vl_doc,
-                    "CFOP": "",
                     "CST_PIS": cst_pis,
                     "VL_BC_PIS": vl_bc_pis,
                     "ALIQ_PIS": aliq_pis,
@@ -469,32 +508,31 @@ def parse_efd_piscofins(lines):
             )
             continue
 
-        # ------------------------ M200 ------------------------
+        # ------------ M200 (Apuração PIS) ------------
         if reg == "M200":
-            M200_HEADERS = [
-                "REG", "VL_TOT_CONT_NC_PER", "VL_CONT_NC_REC",
-                "VL_TOT_CRED_DESC", "VL_TOT_CONT_REAL",
-                "VL_CONT_NC_REST", "VL_CONT_NC_RET",
-                "VL_CONT_NC_SUSP", "VL_CONT_NC_ADIC"
-            ]
-            row = {}
-            for i, col in enumerate(M200_HEADERS):
-                if i < len(p):
-                    row[col] = _to_float(p[i])
-                else:
-                    row[col] = 0.0
-            row["COMPETENCIA"] = competencia
-            row["EMPRESA"] = empresa
+            # Campos principais conforme GP 1.35 (ajuste simplificado)
+            row = {
+                "COMPETENCIA": competencia,
+                "EMPRESA": empresa,
+                "VL_TOT_CONT_NC_PER": _to_float(_get(p, 2)),
+                "VL_CONT_NC_REC": _to_float(_get(p, 3)),
+                "VL_TOT_CRED_DESC": _to_float(_get(p, 4)),
+                "VL_TOT_CONT_REAL": _to_float(_get(p, 5)),
+                "VL_CONT_NC_REST": _to_float(_get(p, 6)),
+                "VL_CONT_NC_RET": _to_float(_get(p, 7)),
+                "VL_CONT_NC_SUSP": _to_float(_get(p, 8)),
+                "VL_CONT_NC_ADIC": _to_float(_get(p, 9)),
+            }
             records_ap_pis.append(row)
             continue
 
-        # ------------------------ M105 ------------------------
+        # ------------ M105 (Créditos PIS por natureza) ------------
         if reg == "M105":
-            nat = p[2]
-            cst = p[3]
-            vl_bc = p[4]
-            aliq = p[5]
-            vl_cred = p[6]
+            nat = _get(p, 2)
+            cst = _get(p, 3)
+            vl_bc = _get(p, 4)
+            aliq = _get(p, 5)
+            vl_cred = _get(p, 6)
 
             records_cred_pis.append(
                 {
@@ -509,6 +547,7 @@ def parse_efd_piscofins(lines):
             )
             continue
 
+    # Finaliza eventual C500 pendente
     finalize_c500()
 
     df_c100 = pd.DataFrame(records_c100)
