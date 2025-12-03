@@ -190,6 +190,8 @@ def parse_efd_piscofins(
 
     current_c100 = None  # última C100 lida
     current_a100 = None  # última A100 lida
+    current_d100 = None  # última D100 lida
+    current_f100 = None  # última F100 lida
 
     # Energia elétrica (C500/C501/C505)
     current_c500 = None
@@ -223,6 +225,7 @@ def parse_efd_piscofins(
             and c500_cof_bc == 0.0
             and c500_cof_val == 0.0
         ):
+            # reseta acumuladores e variável
             current_c500 = None
             c500_pis_bc = c500_pis_aliq = c500_pis_val = 0.0
             c500_cof_bc = c500_cof_aliq = c500_cof_val = 0.0
@@ -427,10 +430,9 @@ def parse_efd_piscofins(
             continue
 
         if reg == "D101":
-            try:
-                d100 = current_d100  # type: ignore[name-defined]
-            except NameError:
+            if current_d100 is None:
                 continue
+            d100 = current_d100
 
             cod_part = _get(d100, 4)
             num_doc = _get(d100, 8)
@@ -469,10 +471,9 @@ def parse_efd_piscofins(
             continue
 
         if reg == "D105":
-            try:
-                d100 = current_d100  # type: ignore[name-defined]
-            except NameError:
+            if current_d100 is None:
                 continue
+            d100 = current_d100
 
             cod_part = _get(d100, 4)
             num_doc = _get(d100, 8)
@@ -512,14 +513,13 @@ def parse_efd_piscofins(
 
         # ------------ F100 / F120 (demais documentos) ------------
         if reg == "F100":
-            current_f100 = p  # type: ignore[assignment]
+            current_f100 = p
             continue
 
         if reg == "F120":
-            try:
-                f100 = current_f100  # type: ignore[name-defined]
-            except NameError:
+            if current_f100 is None:
                 continue
+            f100 = current_f100
 
             cod_part = _get(f100, 3)
             num_doc = _get(f100, 5)
