@@ -267,19 +267,21 @@ def format_currency(value: float) -> str:
     return f"R$ {value:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
 
-def format_df_currency(df: pd.DataFrame) -> pd.io.formats.style.Styler:
-    """Aplica a formatação de moeda brasileira a colunas monetárias de um DataFrame."""
-    format_dict = {}
+def format_df_currency(df: pd.DataFrame) -> pd.DataFrame:
+    """Formata valores monetários para moeda brasileira em um DataFrame."""
+    df_formatted = df.copy()
+    
     # Colunas a serem formatadas
     cols_to_format = ["BASE_PIS", "BASE_COFINS", "PIS", "COFINS", "TOTAL", "TOTAL_PIS_COFINS", "VL_BC_PIS", "VL_PIS", "VL_BC_COFINS", "VL_COFINS"]
-
+    
     for col in cols_to_format:
-        if col in df.columns:
-            # Formato brasileiro: milhar com ponto, decimal com vírgula
-            format_dict[col] = "R$ {:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-
-    # Aplica a formatação
-    return df.style.format(format_dict)
+        if col in df_formatted.columns:
+            # Converte para float e formata como moeda brasileira
+            # O uso de float(x) é seguro aqui porque as colunas já foram convertidas para números (VL_..._NUM)
+            # ou são resultados de soma (BASE_..., PIS, COFINS, TOTAL)
+            df_formatted[col] = df_formatted[col].apply(lambda x: format_currency(float(x)) if pd.notna(x) else "R$ 0,00")
+    
+    return df_formatted
 
 
 def resumo_tipo(df_outros: pd.DataFrame, tipos: List[str], label: str) -> pd.DataFrame:
