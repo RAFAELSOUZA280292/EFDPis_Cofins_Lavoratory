@@ -20,6 +20,10 @@ from typing import List, Tuple, Dict
 import pandas as pd
 
 
+# =====================================================================
+# Helpers básicos
+# =====================================================================
+
 def _to_str(v) -> str:
     if v is None:
         return ""
@@ -74,6 +78,10 @@ def load_efd_from_upload(uploaded_file) -> List[str]:
     raise ValueError("Arquivo inválido. Envie .txt ou .zip contendo .txt de EFD PIS/COFINS.")
 
 
+# =====================================================================
+# Metadados (0000, 0150, 0200)
+# =====================================================================
+
 def _extract_0000_metadata(lines: List[str]) -> Tuple[str, str]:
     """
     Extrai COMPETENCIA (MM/AAAA) e NOME da empresa do registro 0000.
@@ -86,8 +94,9 @@ def _extract_0000_metadata(lines: List[str]) -> Tuple[str, str]:
             continue
         if p[1] == "0000":
             dt_ini = _to_str(p[6])
+            # dt_ini: AAAAMMDD
             if len(dt_ini) == 8:
-                competencia = dt_ini[2:4] + "/" + dt_ini[4:]
+                competencia = dt_ini[4:6] + "/" + dt_ini[0:4]  # MM/AAAA
             empresa = _to_str(p[7])
             break
     return competencia, empresa
@@ -122,6 +131,10 @@ def _build_maps(lines: List[str]) -> Tuple[Dict[str, str], Dict[str, str]]:
 
     return map_part_nome, map_coditem_ncm
 
+
+# =====================================================================
+# Parser principal
+# =====================================================================
 
 def parse_efd_piscofins(lines: List[str]):
     """
@@ -163,6 +176,10 @@ def parse_efd_piscofins(lines: List[str]):
             return default
 
     def finalize_c500():
+        """
+        Grava uma linha consolidando PIS (C501) e COFINS (C505)
+        para o cabeçalho C500 atual.
+        """
         nonlocal current_c500, c500_pis_bc, c500_pis_aliq, c500_pis_val
         nonlocal c500_cof_bc, c500_cof_aliq, c500_cof_val
 
@@ -181,10 +198,12 @@ def parse_efd_piscofins(lines: List[str]):
             c500_cof_bc = c500_cof_aliq = c500_cof_val = 0.0
             return
 
-        cod_part = _get(current_c500, 4)
-        num_doc = _get(current_c500, 8)
-        dt_doc = _get(current_c500, 9)
-        vl_doc = _get(current_c500, 11)
+        # Mapeamento real com base nos exemplos enviados:
+        # |C500|F10372|06|00|3||150918139|14022025|14022025|5947,47|0||98,13|452,01||
+        cod_part = _get(current_c500, 2)
+        num_doc = _get(current_c500, 7)
+        dt_doc = _get(current_c500, 8)
+        vl_doc = _get(current_c500, 10)
 
         records_out.append(
             {
@@ -212,14 +231,16 @@ def parse_efd_piscofins(lines: List[str]):
         c500_pis_bc = c500_pis_aliq = c500_pis_val = 0.0
         c500_cof_bc = c500_cof_aliq = c500_cof_val = 0.0
 
-    # Loop principal
+    # ----------------------------------------------------------
+    # Loop principal nas linhas do arquivo
+    # ----------------------------------------------------------
     for line in lines:
         p = line.strip().split("|")
         if len(p) < 3:
             continue
         reg = p[1]
 
-        # ------------ C100 / C170 (NF-e entradas) ------------
+        # ----------------- C100 / C170 (NF-e entradas) -----------------
         if reg == "C100":
             current_c100 = p
             continue
@@ -238,7 +259,7 @@ def parse_efd_piscofins(lines: List[str]):
             dt_entr = _get(current_c100, 11)
             vl_doc = _get(current_c100, 12)
 
-            # C170
+            # C170 (layout PIS/COFINS)
             num_item = _get(p, 2)
             cod_item = _get(p, 3)
             descr_item = _get(p, 4)
@@ -292,7 +313,7 @@ def parse_efd_piscofins(lines: List[str]):
             )
             continue
 
-        # ------------ A100 / A170 (serviços tomados) ------------
+        # ----------------- A100 / A170 (serviços tomados) -----------------
         if reg == "A100":
             current_a100 = p
             continue
@@ -348,25 +369,44 @@ def parse_efd_piscofins(lines: List[str]):
             )
             continue
 
-        # ------------ C500 / C501 / C505 (energia elétrica) ------------
+        # ----------------- C500 / C501 / C505 (energia elétrica) -----------------
         if reg == "C500":
+            # Fecha o C500 anterior (se houver) e inicia um novo
             finalize_c500()
             current_c500 = p
             continue
 
         if reg == "C501":
-            c500_pis_bc += _to_float(_get(p, 7))
-            c500_pis_aliq = _to_float(_get(p, 8))
-            c500_pis_val += _to_float(_get(p, 9))
+            # Layout do seu exemplo:
+            # |C501|50|5947,47|01|5947,47|1,65|98,13|4.8.01.002.011|
+            #  0    1   2       3   4       5     6     7       8
+            # 02 CST_PIS
+            # 03 VL_ITEM
+            # 04 NAT_BC_CRED
+            # 05 VL_BC_PIS
+            # 06 ALIQ_PIS
+            # 07 VL_PIS
+            if current_c500 is not None:
+                c500_pis_bc += _to_float(_get(p, 5))
+                c500_pis_aliq = _to_float(_get(p, 6))
+                c500_pis_val += _to_float(_get(p, 7))
             continue
 
         if reg == "C505":
-            c500_cof_bc += _to_float(_get(p, 7))
-            c500_cof_aliq = _to_float(_get(p, 8))
-            c500_cof_val += _to_float(_get(p, 9))
+            # |C505|50|5947,47|01|5947,47|7,6|452,01|4.8.01.002.011|
+            # 02 CST_COFINS
+            # 03 VL_ITEM
+            # 04 NAT_BC_CRED
+            # 05 VL_BC_COFINS
+            # 06 ALIQ_COFINS
+            # 07 VL_COFINS
+            if current_c500 is not None:
+                c500_cof_bc += _to_float(_get(p, 5))
+                c500_cof_aliq = _to_float(_get(p, 6))
+                c500_cof_val += _to_float(_get(p, 7))
             continue
 
-        # ------------ D100 / D101 / D105 (fretes / CT-e) ------------
+        # ----------------- D100 / D101 / D105 (fretes / CT-e) -----------------
         if reg == "D100":
             current_d100 = p
             continue
@@ -453,7 +493,7 @@ def parse_efd_piscofins(lines: List[str]):
             )
             continue
 
-        # ------------ F100 / F120 (demais docs / créditos) ------------
+        # ----------------- F100 / F120 (demais docs / créditos) -----------------
         if reg == "F100":
             current_f100 = p
             continue
@@ -511,7 +551,7 @@ def parse_efd_piscofins(lines: List[str]):
             )
             continue
 
-        # ------------ M200 (Apuração PIS) ------------
+        # ----------------- M200 (Apuração PIS) -----------------
         if reg == "M200":
             row = {
                 "COMPETENCIA": competencia,
@@ -528,7 +568,7 @@ def parse_efd_piscofins(lines: List[str]):
             records_ap_pis.append(row)
             continue
 
-        # ------------ M105 (Créditos PIS por natureza) ------------
+        # ----------------- M105 (Créditos PIS por natureza) -----------------
         if reg == "M105":
             nat = _get(p, 2)
             cst = _get(p, 3)
