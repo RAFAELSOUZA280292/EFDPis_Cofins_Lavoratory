@@ -274,7 +274,7 @@ def parse_efd_piscofins(
                     "DT_DOC": dt_doc,
                     "DT_ENTR": dt_entr,
                     "VL_DOC": vl_doc,
-                    "CHV_NFE": chv_nfe, # Adicionado
+                    "CHV_NFE": chv_nfe,
                     "NUM_ITEM": num_item,
                     "COD_ITEM": cod_item,
                     "DESCR_ITEM": descr_item,
@@ -375,7 +375,7 @@ def parse_efd_piscofins(
                     {
                         "COMPETENCIA": competencia,
                         "EMPRESA": empresa,
-                        "TIPO": "D100/D105", # Unificado para Fretes
+                        "TIPO": "D100/D105",
                         "DOC": num_doc,
                         "DT_DOC": dt_doc,
                         "VL_BC_PIS": vl_bc_pis,
