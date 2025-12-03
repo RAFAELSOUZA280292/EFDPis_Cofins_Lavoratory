@@ -1,1006 +1,471 @@
+# parser_pis_cofins.py
 """
-LavoraTax Advisor – EFD PIS/COFINS (Versão 3.2.5 - Premium Executiva Otimizada)
-================================================================================
+Parser de EFD PIS/COFINS focado em créditos de entradas
+(C100/C170, A100/A170, C500/C501/C505, D100/D101/D105, F100/F120)
+e nos registros de apuração de PIS (M200) e créditos PIS (M105).
 
-Painel executivo premium para análise consolidada de créditos de PIS/COFINS.
-Otimizado para CEO, CFO, Diretores Tributários e Financeiros.
-
-Principais melhorias v3.2.5:
-* **FIX:** Corrigida a extração de PIS/COFINS para os registros A100 e F100 no parser.
-* **FIX:** Corrigido o loop infinito causado por st.rerun() na remoção de arquivos.
-* **FIX:** Estabilidade e correção de loops no parser.
-* **BRANDING:** Renomeado para LavoraTax Advisor (braço da Lavoratory Group).
+Pensado para trabalhar em conjunto com o app Streamlit (app.py).
 """
 
 import io
 import zipfile
-from typing import List, Tuple
+from typing import Tuple, List, Dict
 
 import pandas as pd
-import plotly.express as px
-import plotly.graph_objects as go
-import streamlit as st
-
-# Importa o parser corrigido e a função de carregamento
-from parser_pis_cofins import parse_efd_piscofins, load_efd_from_upload
 
 
-# =============================================================================
-# CONFIGURAÇÃO DE PÁGINA
-# =============================================================================
+# =========================
+# Helpers básicos
+# =========================
 
-st.set_page_config(
-    page_title="LavoraTax Advisor – EFD PIS/COFINS",
-    page_icon="📊",
-    layout="wide",
-    initial_sidebar_state="expanded",
-)
 
-# =============================================================================
-# TEMA E ESTILO CUSTOMIZADO (PREMIUM EXECUTIVO)
-# =============================================================================
+def _to_str(s) -> str:
+    return "" if s is None else str(s)
 
-st.markdown(
+
+def _to_float(s) -> float:
     """
-    <style>
-    /* Variáveis de cor executiva premium */
-    :root {
-        --primary: #1e3a8a;      /* Azul profundo */
-        --secondary: #0f766e;    /* Verde teal */
-        --accent: #dc2626;       /* Vermelho para alertas */
-        --light-bg: #f8fafc;     /* Cinza muito claro */
-        --card-bg: #ffffff;      /* Branco */
-        --text-primary: #0f172a; /* Preto profundo */
-        --text-secondary: #475569; /* Cinza médio */
-        --border: #e2e8f0;       /* Cinza claro */
-    }
-
-    /* Fundo geral */
-    .stApp {
-        background-color: #f8fafc;
-        color: #0f172a;
-    }
-
-    /* Container principal */
-    .block-container {
-        padding-top: 2rem;
-        padding-left: 2rem;
-        padding-right: 2rem;
-        max-width: 1600px;
-    }
-
-    /* Cabeçalho principal */
-    .header-main {
-        background: linear-gradient(135deg, #1e3a8a 0%, #0f766e 100%);
-        color: white;
-        padding: 2rem;
-        border-radius: 12px;
-        margin-bottom: 2rem;
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-    }
-
-    .header-main h1 {
-        margin: 0;
-        font-size: 2.5rem;
-        font-weight: 700;
-        letter-spacing: -0.5px;
-    }
-
-    .header-main p {
-        margin: 0.5rem 0 0 0;
-        font-size: 1rem;
-        opacity: 0.95;
-    }
-
-    /* Cards de KPI */
-    .kpi-card {
-        background: white;
-        border-radius: 10px;
-        padding: 1.5rem;
-        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
-        border-left: 4px solid #1e3a8a;
-        transition: all 0.3s ease;
-    }
-
-    .kpi-card:hover {
-        box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
-        transform: translateY(-2px);
-    }
-
-    .kpi-card.secondary {
-        border-left-color: #0f766e;
-    }
-
-    .kpi-card.accent {
-        border-left-color: #dc2626;
-    }
-
-    .kpi-label {
-        font-size: 0.875rem;
-        color: #475569;
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
-        font-weight: 600;
-        margin-bottom: 0.5rem;
-    }
-
-    .kpi-value {
-        font-size: 2rem;
-        font-weight: 700;
-        color: #1e3a8a;
-        margin: 0.5rem 0;
-    }
-
-    .kpi-card.secondary .kpi-value {
-        color: #0f766e;
-    }
-
-    .kpi-card.accent .kpi-value {
-        color: #dc2626;
-    }
-
-    .kpi-subtitle {
-        font-size: 0.75rem;
-        color: #94a3b8;
-        margin-top: 0.5rem;
-    }
-
-    /* Seções */
-    .section-title {
-        font-size: 1.5rem;
-        font-weight: 700;
-        color: #1e3a8a;
-        margin: 2rem 0 1rem 0;
-        padding-bottom: 0.5rem;
-        border-bottom: 2px solid #e2e8f0;
-    }
-
-    .subsection-title {
-        font-size: 1.125rem;
-        font-weight: 600;
-        color: #0f172a;
-        margin: 1.5rem 0 1rem 0;
-    }
-
-    /* Tabelas */
-    .dataframe {
-        font-size: 0.9rem;
-    }
-
-    /* Botões */
-    .stButton > button {
-        background-color: #1e3a8a;
-        color: white;
-        border: none;
-        border-radius: 6px;
-        padding: 0.75rem 1.5rem;
-        font-weight: 600;
-        transition: all 0.3s ease;
-    }
-
-    .stButton > button:hover {
-        background-color: #1e40af;
-        box-shadow: 0 4px 12px rgba(30, 58, 138, 0.3);
-    }
-
-    /* Divider */
-    .divider {
-        margin: 2rem 0;
-        border-top: 1px solid #e2e8f0;
-    }
-
-    /* Info box */
-    .info-box {
-        background-color: #eff6ff;
-        border-left: 4px solid #0284c7;
-        padding: 1rem;
-        border-radius: 6px;
-        margin: 1rem 0;
-    }
-
-    /* Success box */
-    .success-box {
-        background-color: #f0fdf4;
-        border-left: 4px solid #16a34a;
-        padding: 1rem;
-        border-radius: 6px;
-        margin: 1rem 0;
-    }
-
-    /* Warning box */
-    .warning-box {
-        background-color: #fef3c7;
-        border-left: 4px solid #f59e0b;
-        padding: 1rem;
-        border-radius: 6px;
-        margin: 1rem 0;
-    }
-
-    /* Tabs customizadas */
-    .stTabs [data-baseweb="tab-list"] {
-        gap: 2rem;
-        border-bottom: 2px solid #e2e8f0;
-    }
-
-    .stTabs [data-baseweb="tab"] {
-        padding: 1rem 0;
-        border-bottom: 3px solid transparent;
-    }
-
-    .stTabs [aria-selected="true"] {
-        border-bottom-color: #1e3a8a;
-        color: #1e3a8a;
-    }
-
-    /* Loading card */
-    .loading-card {
-        background: white;
-        border-radius: 10px;
-        padding: 1rem;
-        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
-        margin: 0.5rem 0;
-        text-align: center;
-        font-size: 0.85rem;
-    }
-
-    /* Ranking table */
-    .ranking-table {
-        background: white;
-        border-radius: 10px;
-        padding: 1rem;
-        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
-    }
-
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
-
-# =============================================================================
-# FUNÇÕES AUXILIARES
-# =============================================================================
-
-
-def to_float(value) -> float:
-    """Converte string no formato brasileiro (1.234,56) em float."""
+    Converte string em número float, aceitando formatos BR (1.234,56).
+    """
+    s = _to_str(s).strip()
+    if not s:
+        return 0.0
+    # trata "1.234,56" -> "1234.56"
+    if s.count(",") == 1 and s.count(".") >= 1:
+        s = s.replace(".", "").replace(",", ".")
+    else:
+        s = s.replace(",", ".")
     try:
-        s = str(value).strip()
-        if s == "" or s is None:
-            return 0.0
-        if s.count(",") == 1 and s.count(".") >= 1:
-            s = s.replace(".", "").replace(",", ".")
-        else:
-            s = s.replace(",", ".")
         return float(s)
     except Exception:
         return 0.0
 
 
-def format_currency(value: float) -> str:
-    """Formata valor como moeda brasileira (R$ 1.234,56)."""
-    return f"R$ {value:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+def _get(parts: List[str], idx: int) -> str:
+    return parts[idx] if len(parts) > idx else ""
 
 
-def format_df_currency(df: pd.DataFrame) -> pd.DataFrame:
-    """Formata valores monetários para moeda brasileira em um DataFrame."""
-    df_formatted = df.copy()
-    
-    # Colunas a serem formatadas
-    cols_to_format = ["BASE_PIS", "BASE_COFINS", "PIS", "COFINS", "TOTAL", "TOTAL_PIS_COFINS", "VL_BC_PIS", "VL_PIS", "VL_BC_COFINS", "VL_COFINS", "Total_PIS", "Total_COFINS", "Total_Creditos"]
-    
-    for col in cols_to_format:
-        if col in df_formatted.columns:
-            try:
-                # Tenta converter para numérico, forçando erros para NaN
-                df_formatted[col] = pd.to_numeric(df_formatted[col], errors='coerce').fillna(0.0)
-                # Aplica a formatação de moeda
-                df_formatted[col] = df_formatted[col].apply(lambda x: format_currency(float(x)))
-            except Exception:
-                # Ignora colunas que não são numéricas
-                pass
-    
-    return df_formatted
+def _decode_bytes(data: bytes) -> str:
+    """
+    Decodifica bytes tentando latin-1 e depois utf-8.
+    """
+    for enc in ("latin-1", "utf-8"):
+        try:
+            return data.decode(enc)
+        except Exception:
+            continue
+    return data.decode("latin-1", errors="ignore")
 
 
-def resumo_tipo(df_outros: pd.DataFrame, tipos: List[str], label: str) -> pd.DataFrame:
-    """Agrupa créditos por competência e empresa para tipos especificados."""
-    cols = [
-        "COMPETENCIA",
-        "EMPRESA",
-        "GRUPO",
-        "BASE_PIS",
-        "BASE_COFINS",
-        "PIS",
-        "COFINS",
+def _extract_txt_from_zip(data: bytes) -> str:
+    """
+    Recebe bytes de um .zip e devolve o conteúdo (texto) do primeiro .txt encontrado.
+    """
+    with zipfile.ZipFile(io.BytesIO(data)) as z:
+        for name in z.namelist():
+            if name.lower().endswith(".txt"):
+                with z.open(name) as f:
+                    return _decode_bytes(f.read())
+    raise ValueError("Nenhum arquivo .txt encontrado dentro do .zip")
+
+
+def load_efd_from_upload(uploaded_file) -> List[str]:
+    """
+    Recebe um UploadedFile do Streamlit (txt ou zip) e devolve
+    uma lista de linhas do SPED.
+    """
+    raw = uploaded_file.read()
+    name = uploaded_file.name.lower()
+
+    if name.endswith(".zip"):
+        text = _extract_txt_from_zip(raw)
+    else:
+        text = _decode_bytes(raw)
+
+    # divide em linhas, removendo vazios extremos
+    return [ln for ln in text.splitlines() if ln.strip()]
+
+
+# =========================
+# Metadados / mapas auxiliares
+# =========================
+
+
+def _extract_metadata_0000(lines: List[str]) -> Tuple[str, str]:
+    """
+    Extrai:
+      - competência (MM/AAAA)
+      - empresa (razão social)
+    a partir do registro 0000.
+    """
+    for line in lines:
+        if line.startswith("|0000|"):
+            parts = line.split("|")
+            competencia = _get(parts, 7)  # DT_FIN (DDMMAAAA)
+            empresa = _get(parts, 9)  # NOME_EMP
+            return f"{competencia[2:4]}/{competencia[4:8]}", empresa
+    return "N/A", "N/A"
+
+
+def _extract_metadata_0200(lines: List[str]) -> Dict[str, str]:
+    """
+    Extrai:
+      - mapa de itens (0200): COD_ITEM -> NCM
+    """
+    map_coditem_ncm = {}
+    for line in lines:
+        if line.startswith("|0200|"):
+            parts = line.split("|")
+            cod_item = _get(parts, 2)
+            ncm = _get(parts, 8)
+            if cod_item and ncm:
+                map_coditem_ncm[cod_item] = ncm
+    return map_coditem_ncm
+
+
+def _extract_metadata_0150(lines: List[str]) -> Dict[str, str]:
+    """
+    Extrai:
+      - mapa de participantes (0150): COD_PART -> NOME
+    """
+    map_part_nome = {}
+    for line in lines:
+        if line.startswith("|0150|"):
+            parts = line.split("|")
+            cod_part = _get(parts, 2)
+            nome = _get(parts, 3)
+            if cod_part and nome:
+                map_part_nome[cod_part] = nome
+    return map_part_nome
+
+
+# =========================
+# Parser principal
+# =========================
+
+
+def parse_efd_piscofins(
+    lines: List[str],
+) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, str, str]:
+    """
+    Recebe as linhas do SPED e retorna DataFrames com os dados de crédito.
+    """
+    competencia, empresa = _extract_metadata_0000(lines)
+    map_coditem_ncm = _extract_metadata_0200(lines)
+    map_part_nome = _extract_metadata_0150(lines)
+
+    records_c100 = []  # NF-e de entrada (C100/C170)
+    records_out = []  # Outros documentos (A100/A170, C500/C501/C505, D100/D101/D105, F100/F120)
+    records_ap_pis = []  # M200
+    records_cred_pis = []  # M105
+
+    # Variáveis de estado para registros pais
+    current_c100 = None  # última C100 lida
+    current_a100 = None  # última A100 lida
+    current_c500 = None  # última C500 lida
+    current_d100 = None  # última D100 lida
+    current_f100 = None  # última F100 lida
+
+    # Headers para M200 (simplificado)
+    M200_HEADERS = [
+        "VL_TOT_CONT_PER",
+        "VL_TOT_CRED_DESC",
+        "VL_TOT_CRED_DESC_ANT",
+        "VL_TOT_CRED_DESC_PER",
+        "VL_TOT_CRED_DESC_FUT",
+        "VL_TOT_CRED_DESC_COFINS",
+        "VL_TOT_CRED_DESC_COFINS_ANT",
+        "VL_TOT_CRED_DESC_COFINS_PER",
+        "VL_TOT_CRED_DESC_COFINS_FUT",
     ]
-    if not isinstance(df_outros, pd.DataFrame) or "TIPO" not in df_outros.columns:
-        return pd.DataFrame(columns=cols)
 
-    df = df_outros[df_outros["TIPO"].isin(tipos)].copy()
-    if df.empty:
-        return pd.DataFrame(columns=cols)
+    def finalize_c500():
+        """Função auxiliar para finalizar o bloco C500/C501/C505."""
+        nonlocal current_c500
+        if current_c500 and len(current_c500) > 22:
+            # Se for C500 (pai), adiciona o registro principal
+            if _get(current_c500, 1) == "C500":
+                # Campos C500:
+                # 19: VL_BC_PIS, 20: VL_PIS, 21: VL_BC_COFINS, 22: VL_COFINS
+                vl_bc_pis = _get(current_c500, 19)
+                vl_pis = _get(current_c500, 20)
+                vl_bc_cof = _get(current_c500, 21)
+                vl_cof = _get(current_c500, 22)
 
-    df["VL_BC_PIS_NUM"] = df["VL_BC_PIS"].apply(to_float)
-    df["VL_BC_COFINS_NUM"] = df["VL_BC_COFINS"].apply(to_float)
-    df["VL_PIS_NUM"] = df["VL_PIS"].apply(to_float)
-    df["VL_COFINS_NUM"] = df["VL_COFINS"].apply(to_float)
+                if _to_float(vl_pis) > 0.0 or _to_float(vl_cof) > 0.0:
+                    records_out.append(
+                        {
+                            "COMPETENCIA": competencia,
+                            "EMPRESA": empresa,
+                            "TIPO": "C500/C501/C505",
+                            "DOC": _get(current_c500, 13),  # NUM_DOC
+                            "DT_DOC": _get(current_c500, 14),  # DT_DOC
+                            "VL_BC_PIS": vl_bc_pis,
+                            "VL_PIS": vl_pis,
+                            "VL_BC_COFINS": vl_bc_cof,
+                            "VL_COFINS": vl_cof,
+                        }
+                    )
+            current_c500 = None
 
-    # Apenas documentos com crédito real (PIS ou COFINS > 0)
-    df = df[(df["VL_PIS_NUM"] > 0) | (df["VL_COFINS_NUM"] > 0)]
-    if df.empty:
-        return pd.DataFrame(columns=cols)
+    for line in lines:
+        p = line.split("|")
+        reg = _get(p, 1)
 
-    grouped = (
-        df.groupby(["COMPETENCIA", "EMPRESA"], as_index=False)[
-            ["VL_BC_PIS_NUM", "VL_BC_COFINS_NUM", "VL_PIS_NUM", "VL_COFINS_NUM"]
-        ]
-        .sum()
-        .rename(
-            columns={
-                "VL_BC_PIS_NUM": "BASE_PIS",
-                "VL_BC_COFINS_NUM": "BASE_COFINS",
-                "VL_PIS_NUM": "PIS",
-                "VL_COFINS_NUM": "COFINS",
-            }
-        )
-    )
-    grouped.insert(2, "GRUPO", label)
-    return grouped
+        # Finaliza blocos anteriores
+        if reg.startswith("C") and reg != "C500" and reg != "C501" and reg != "C505":
+            finalize_c500()
 
-
-# Mapeamento de CFOPs para grupos de crédito
-CFOP_MAP = {
-    "1102": "Compra para Comercialização",
-    "2102": "Compra para Comercialização",
-    "1403": "Compra para Comercialização com ST",
-    "2403": "Compra para Comercialização com ST",
-    "1202": "Devolução de Venda",
-    "2202": "Devolução de Venda",
-    "1411": "Devolução de Venda com ST",
-    "2411": "Devolução de Venda com ST",
-    "1909": "Entrada em Comodato",
-    "2909": "Entrada em Comodato",
-    "1949": "Outras Entradas",
-    "2949": "Outras Entradas",
-}
-
-
-def resumo_cfop_mapeado(df_c100: pd.DataFrame) -> pd.DataFrame:
-    """Agrupa créditos de NF-e por CFOP mapeado."""
-    cols = [
-        "COMPETENCIA",
-        "EMPRESA",
-        "GRUPO",
-        "BASE_PIS",
-        "BASE_COFINS",
-        "PIS",
-        "COFINS",
-    ]
-    if df_c100.empty:
-        return pd.DataFrame(columns=cols)
-
-    df = df_c100.copy()
-    df["VL_PIS_NUM"] = df["VL_PIS"].apply(to_float)
-    df["VL_COFINS_NUM"] = df["VL_COFINS"].apply(to_float)
-    df["VL_BC_PIS_NUM"] = df["VL_BC_PIS"].apply(to_float)
-    df["VL_BC_COFINS_NUM"] = df["VL_BC_COFINS"].apply(to_float)
-
-    # Apenas documentos com crédito real (PIS ou COFINS > 0)
-    df = df[(df["VL_PIS_NUM"] > 0) | (df["VL_COFINS_NUM"] > 0)]
-    if df.empty:
-        return pd.DataFrame(columns=cols)
-
-    # Mapeia CFOPs
-    df["GRUPO"] = df["CFOP"].astype(str).map(CFOP_MAP).fillna("NF-e Outras Entradas")
-
-    grouped = (
-        df.groupby(["COMPETENCIA", "EMPRESA", "GRUPO"], as_index=False)[
-            ["VL_BC_PIS_NUM", "VL_BC_COFINS_NUM", "VL_PIS_NUM", "VL_COFINS_NUM"]
-        ]
-        .sum()
-        .rename(
-            columns={
-                "VL_BC_PIS_NUM": "BASE_PIS",
-                "VL_BC_COFINS_NUM": "BASE_COFINS",
-                "VL_PIS_NUM": "PIS",
-                "VL_COFINS_NUM": "COFINS",
-            }
-        )
-    )
-    return grouped
-
-
-# =============================================================================
-# LÓGICA DE CARREGAMENTO E PROCESSAMENTO
-# =============================================================================
-
-
-@st.cache_data(show_spinner=False)
-def parse_file(uploaded_file) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, str, str]:
-    """Processa arquivo EFD usando load_efd_from_upload."""
-    lines = load_efd_from_upload(uploaded_file)
-    return parse_efd_piscofins(lines)
-
-
-def process_uploaded_files(uploaded_files):
-    """Processa a lista de arquivos e armazena o resultado no state."""
-    
-    # Limpa o state se for o primeiro upload
-    if not st.session_state.get('files_data'):
-        st.session_state.files_data = []
-
-    # Cria um placeholder para a mensagem de processamento
-    status_placeholder = st.empty()
-    
-    for i, uploaded_file in enumerate(uploaded_files):
-        file_name = uploaded_file.name
-        
-        # Verifica se o arquivo já foi processado
-        if any(d['name'] == file_name for d in st.session_state.files_data):
-            status_placeholder.info(f"✅ Arquivo '{file_name}' já processado. Pulando.")
+        # ------------ C100 / C170 (NF-e entradas) ------------
+        if reg == "C100":
+            current_c100 = p
             continue
 
-        try:
-            # Exibe o status de processamento
-            status_placeholder.markdown(f"""
-                <div class="loading-card">
-                    ⏳ Processando Arquivo {i+1}/{len(uploaded_files)}: <strong>{file_name}</strong>
-                </div>
-                """, unsafe_allow_html=True)
+        if reg == "C170" and current_c100:
+            ind_oper = _get(current_c100, 2)  # 0=entrada, 1=saída
+            if ind_oper != "0":
+                # só entradas geram crédito de PIS/COFINS
+                continue
+
+            cod_part = _get(current_c100, 4)
+            modelo = _get(current_c100, 5)
+            situacao = _get(current_c100, 9)
+            num_doc = _get(current_c100, 8)
+            dt_doc = _get(current_c100, 10)
+            dt_entr = _get(current_c100, 11)
+            vl_doc = _get(current_c100, 12)
+            chv_nfe = _get(current_c100, 10) # CHV_NFE (Campo 10 do C100)
+
+            # C170
+            num_item = _get(p, 2)
+            cod_item = _get(p, 3)
+            descr_item = _get(p, 4)
+            cfop = _get(p, 11)
+
+            # CST / bases / alíquotas / valores - PIS
+            cst_pis = _get(p, 25)
+            vl_bc_pis = _get(p, 26)
+            aliq_pis = _get(p, 27)
+            vl_pis = _get(p, 30)
+
+            # CST / bases / alíquotas / valores - COFINS
+            cst_cof = _get(p, 31)
+            vl_bc_cof = _get(p, 32)
+            aliq_cof = _get(p, 33)
+            vl_cof = _get(p, 36)
+
+            # só mantém linhas com crédito real (PIS ou COFINS > 0)
+            if (
+                _to_float(vl_pis) == 0.0
+                and _to_float(vl_cof) == 0.0
+            ):
+                continue
+
+            records_c100.append(
+                {
+                    "COMPETENCIA": competencia,
+                    "EMPRESA": empresa,
+                    "IND_OPER": ind_oper,
+                    "COD_PART": cod_part,
+                    "NOME_PART": map_part_nome.get(cod_part, ""),
+                    "MODELO": modelo,
+                    "SIT_DOC": situacao,
+                    "NUM_DOC": num_doc,
+                    "DT_DOC": dt_doc,
+                    "DT_ENTR": dt_entr,
+                    "VL_DOC": vl_doc,
+                    "CHV_NFE": chv_nfe, # Adicionado
+                    "NUM_ITEM": num_item,
+                    "COD_ITEM": cod_item,
+                    "DESCR_ITEM": descr_item,
+                    "NCM": map_coditem_ncm.get(cod_item, ""),
+                    "CFOP": cfop,
+                    "CST_PIS": cst_pis,
+                    "VL_BC_PIS": vl_bc_pis,
+                    "ALIQ_PIS": aliq_pis,
+                    "VL_PIS": vl_pis,
+                    "CST_COFINS": cst_cof,
+                    "VL_BC_COFINS": vl_bc_cof,
+                    "ALIQ_COFINS": aliq_cof,
+                    "VL_COFINS": vl_cof,
+                }
+            )
+            continue
+
+        # ------------ A100 / A170 (serviços tomados) ------------
+        if reg == "A100":
+            current_a100 = p
+            continue
+
+        if reg == "A170" and current_a100:
+            # A100 - Campos corretos (contando de 0):
+            # 6: NUM_DOC, 11: DT_VENC
+            # Baseado no exemplo do usuário: |...|382,45|6,31|382,45|29,07|...
             
-            # Chama a função de parse (com cache)
-            df_c100, df_outros, df_ap, df_cred, competencia, empresa = parse_file(uploaded_file)
-
-            # Armazena os dados no session state
-            st.session_state.files_data.append({
-                'name': file_name,
-                'df_c100': df_c100,
-                'df_outros': df_outros,
-                'df_ap': df_ap,
-                'df_cred': df_cred,
-                'competencia': competencia,
-                'empresa': empresa
-            })
+            num_doc = _get(current_a100, 6)
+            dt_doc = _get(current_a100, 11)
             
-            status_placeholder.success(f"✅ Arquivo '{file_name}' processado com sucesso!")
+            # Ajustado para os campos 16, 17, 18, 19 que correspondem ao exemplo
+            # 16: VL_BC_PIS, 17: VL_PIS, 18: VL_BC_COFINS, 19: VL_COFINS
+            vl_bc_pis = _get(current_a100, 16)
+            vl_pis = _get(current_a100, 17)
+            vl_bc_cof = _get(current_a100, 18)
+            vl_cof = _get(current_a100, 19)
+            
+            # Se o campo 16 for 0, tenta o campo 18 (VL_BC_PIS_OUTRAS)
+            if _to_float(vl_bc_pis) == 0.0 and len(current_a100) > 18:
+                vl_bc_pis = _get(current_a100, 18)
+                vl_pis = _get(current_a100, 19)
+            
+            # Se o campo 18 for 0, tenta o campo 20 (VL_BC_COFINS_OUTRAS)
+            if _to_float(vl_bc_cof) == 0.0 and len(current_a100) > 20:
+                vl_bc_cof = _get(current_a100, 20)
+                vl_cof = _get(current_a100, 21)
 
-        except Exception as e:
-            status_placeholder.error(f"❌ Erro ao processar {file_name}: {e}")
-            # Limpa o cache para evitar que o arquivo com erro fique salvo
-            parse_file.clear()
+            if _to_float(vl_pis) > 0.0 or _to_float(vl_cof) > 0.0:
+                records_out.append(
+                    {
+                        "COMPETENCIA": competencia,
+                        "EMPRESA": empresa,
+                        "TIPO": "A100/A170",
+                        "DOC": num_doc,
+                        "DT_DOC": dt_doc,
+                        "VL_BC_PIS": vl_bc_pis,
+                        "VL_PIS": vl_pis,
+                        "VL_BC_COFINS": vl_bc_cof,
+                        "VL_COFINS": vl_cof,
+                    }
+                )
+            current_a100 = None
+            continue
 
-    # Limpa o placeholder após o processamento
-    status_placeholder.empty()
+        # ------------ C500 / C501 / C505 (Energia/Comunicação) ------------
+        if reg == "C500":
+            current_c500 = p
+            continue
 
+        if reg == "C501" or reg == "C505":
+            # C501/C505 são registros filhos, o crédito está no C500 (pai)
+            # Apenas marca que foi processado, sem duplicar dados
+            if current_c500 is None:
+                continue
+            continue
 
-# =============================================================================
-# LAYOUT PRINCIPAL
-# =============================================================================
+        # ------------ D100 / D101 / D105 (Fretes) ------------
+        if reg == "D100":
+            current_d100 = p
+            continue
 
-# Cabeçalho
-st.markdown(
-    """
-    <div class="header-main">
-        <h1>LavoraTax Advisor</h1>
-        <p>Painel Executivo de Análise de Créditos PIS/COFINS (EFD Contribuições)</p>
-    </div>
-    """,
-    unsafe_allow_html=True,
-)
+        if reg == "D101" or reg == "D105":
+            if current_d100 is None:
+                continue
+            
+            # D100: 12: NUM_DOC, 13: DT_DOC
+            num_doc = _get(current_d100, 12)
+            dt_doc = _get(current_d100, 13)
+            
+            # D101/D105: 4: VL_BC_PIS, 5: VL_PIS, 7: VL_BC_COFINS, 8: VL_COFINS
+            vl_bc_pis = _get(p, 4)
+            vl_pis = _get(p, 5)
+            vl_bc_cof = _get(p, 7)
+            vl_cof = _get(p, 8)
 
-# Upload de arquivos
-uploaded_files = st.file_uploader(
-    "📥 Carregar Arquivos SPED PIS/COFINS (.txt ou .zip)",
-    type=["txt", "zip"],
-    accept_multiple_files=True,
-    help="Selecione um ou mais arquivos EFD Contribuições (.txt) ou arquivos zip contendo o SPED."
-)
+            if _to_float(vl_pis) > 0.0 or _to_float(vl_cof) > 0.0:
+                records_out.append(
+                    {
+                        "COMPETENCIA": competencia,
+                        "EMPRESA": empresa,
+                        "TIPO": "D100/D105", # Unificado para Fretes
+                        "DOC": num_doc,
+                        "DT_DOC": dt_doc,
+                        "VL_BC_PIS": vl_bc_pis,
+                        "VL_PIS": vl_pis,
+                        "VL_BC_COFINS": vl_bc_cof,
+                        "VL_COFINS": vl_cof,
+                    }
+                )
+            continue
 
-if uploaded_files:
-    process_uploaded_files(uploaded_files)
+        # ------------ F100 / F120 (Outros) ------------
+        if reg == "F100":
+            current_f100 = p
+            continue
 
-if not st.session_state.get('files_data'):
-    st.info("Aguardando o carregamento dos arquivos SPED para iniciar a análise.")
-    st.stop()
+        if reg == "F120":
+            if current_f100 is None:
+                continue
+            
+            # F100: 10: NUM_DOC, 11: DT_DOC
+            num_doc = _get(current_f100, 10)
+            dt_doc = _get(current_f100, 11)
+            
+            # F100 (baseado no exemplo do usuário):
+            # 8: VL_BC_PIS, 10: VL_PIS, 12: VL_BC_COFINS, 14: VL_COFINS
+            
+            # Se for F100, usa os campos do F100 (pai)
+            if _get(current_f100, 1) == "F100":
+                vl_bc_pis = _get(current_f100, 8)
+                vl_pis = _get(current_f100, 10)
+                vl_bc_cof = _get(current_f100, 12)
+                vl_cof = _get(current_f100, 14)
+            else:
+                # Se for F120, usa os campos do F120 (filho)
+                # F120: 4: VL_BC_PIS, 5: VL_PIS, 7: VL_BC_COFINS, 8: VL_COFINS
+                vl_bc_pis = _get(p, 4)
+                vl_pis = _get(p, 5)
+                vl_bc_cof = _get(p, 7)
+                vl_cof = _get(p, 8)
 
-# =============================================================================
-# EXIBIÇÃO E FILTROS
-# =============================================================================
+            if _to_float(vl_pis) > 0.0 or _to_float(vl_cof) > 0.0:
+                records_out.append(
+                    {
+                        "COMPETENCIA": competencia,
+                        "EMPRESA": empresa,
+                        "TIPO": "F100/F120",
+                        "DOC": num_doc,
+                        "DT_DOC": dt_doc,
+                        "VL_BC_PIS": vl_bc_pis,
+                        "VL_PIS": vl_pis,
+                        "VL_BC_COFINS": vl_bc_cof,
+                        "VL_COFINS": vl_cof,
+                    }
+                )
+            current_f100 = None
+            continue
 
-if not st.session_state.files_data:
-    st.stop()
-
-# Extracao de competencias e empresas
-competencias_disponiveis = sorted(list(set(d['competencia'] for d in st.session_state.files_data)))
-empresas_disponiveis = sorted(list(set(d['empresa'] for d in st.session_state.files_data)))
-
-# Exibir informações dos arquivos carregados
-st.markdown("<div class='divider'></div>", unsafe_allow_html=True)
-st.markdown("### 📋 Arquivos Carregados", unsafe_allow_html=True)
-
-# Exibir em formato compacto
-col1, col2, col3 = st.columns([1, 1, 2])
-
-with col1:
-    st.metric("📊 Competências", len(competencias_disponiveis))
-
-with col2:
-    st.metric("🏢 Empresas", len(empresas_disponiveis))
-
-with col3:
-    st.metric("📄 Arquivos", len(st.session_state.files_data))
-
-# Exibir lista de arquivos em formato compacto com botão de remoção
-with st.expander("📂 Ver detalhes e remover arquivos", expanded=False):
-    
-    # Cria uma cópia da lista para iteração e remoção
-    files_to_remove = []
-    
-    for idx, data in enumerate(st.session_state.files_data):
-        col_name, col_comp, col_emp, col_remove = st.columns([3, 1, 2, 0.5])
-        
-        col_name.text(data['name'])
-        col_comp.text(data['competencia'])
-        col_emp.text(data['empresa'])
-        
-        if col_remove.button("❌", key=f"remove_{idx}"):
-            files_to_remove.append(idx)
-
-    # Remove os arquivos marcados
-    if files_to_remove:
-        # Remove em ordem decrescente para não bagunçar os índices
-        for idx in sorted(files_to_remove, reverse=True):
-            st.session_state.files_data.pop(idx)
-
-st.markdown("<div class='divider'></div>", unsafe_allow_html=True)
-
-# Filtros de Competencia e Empresa APRIMORADOS
-st.markdown("### 🔍 Filtros de Análise Avançados", unsafe_allow_html=True)
-
-col_filter_comp, col_filter_emp = st.columns(2)
-
-with col_filter_comp:
-    comp_options = ["📊 Todas as Competências"] + competencias_disponiveis
-    competencia_selecionada = st.selectbox(
-        "Selecione a Competência:",
-        comp_options,
-        key="filter_competencia"
-    )
-    if competencia_selecionada == "📊 Todas as Competências":
-        competencia_selecionada = None
-
-with col_filter_emp:
-    emp_options = ["🏢 Todas as Empresas"] + empresas_disponiveis
-    empresa_selecionada = st.selectbox(
-        "Selecione a Empresa:",
-        emp_options,
-        key="filter_empresa"
-    )
-    if empresa_selecionada == "🏢 Todas as Empresas":
-        empresa_selecionada = None
-
-st.markdown("<div class='divider'></div>", unsafe_allow_html=True)
-
-# Combina e Filtra DataFrames
-dfs_c100: List[pd.DataFrame] = []
-dfs_outros: List[pd.DataFrame] = []
-dfs_ap: List[pd.DataFrame] = []
-dfs_cred: List[pd.DataFrame] = []
-
-for data in st.session_state.files_data:
-    
-    # Aplica filtro
-    comp_match = (competencia_selecionada is None) or (data['competencia'] == competencia_selecionada)
-    emp_match = (empresa_selecionada is None) or (data['empresa'] == empresa_selecionada)
-    
-    if comp_match and emp_match:
-        dfs_c100.append(data['df_c100'])
-        dfs_outros.append(data['df_outros'])
-        dfs_ap.append(data['df_ap'])
-        dfs_cred.append(data['df_cred'])
-
-df_c100 = pd.concat(dfs_c100, ignore_index=True) if dfs_c100 else pd.DataFrame()
-df_outros = pd.concat(dfs_outros, ignore_index=True) if dfs_outros else pd.DataFrame()
-df_ap = pd.concat(dfs_ap, ignore_index=True) if dfs_ap else pd.DataFrame()
-df_cred = pd.concat(dfs_cred, ignore_index=True) if dfs_cred else pd.DataFrame()
-
-# =============================================================================
-# CONVERSÃO NUMÉRICA (para cálculos)
-# =============================================================================
-
-if not df_c100.empty:
-    df_c100["VL_BC_PIS_NUM"] = df_c100["VL_BC_PIS"].apply(to_float)
-    df_c100["VL_BC_COFINS_NUM"] = df_c100["VL_BC_COFINS"].apply(to_float)
-    df_c100["VL_PIS_NUM"] = df_c100["VL_PIS"].apply(to_float)
-    df_c100["VL_COFINS_NUM"] = df_c100["VL_COFINS"].apply(to_float)
-
-if not df_outros.empty:
-    df_outros["VL_BC_PIS_NUM"] = df_outros["VL_BC_PIS"].apply(to_float)
-    df_outros["VL_BC_COFINS_NUM"] = df_outros["VL_BC_COFINS"].apply(to_float)
-    df_outros["VL_PIS_NUM"] = df_outros["VL_PIS"].apply(to_float)
-    df_outros["VL_COFINS_NUM"] = df_outros["VL_COFINS"].apply(to_float)
-
-# =============================================================================
-# CÁLCULO DE TOTAIS E RESUMOS
-# =============================================================================
-
-total_pis = 0.0
-total_cofins = 0.0
-total_base_pis = 0.0
-total_base_cofins = 0.0
-
-# Filtra documentos com crédito real para cálculo de totais
-df_c100_cred = df_c100[(df_c100["VL_PIS_NUM"] > 0) | (df_c100["VL_COFINS_NUM"] > 0)]
-df_outros_cred = df_outros[(df_outros["VL_PIS_NUM"] > 0) | (df_outros["VL_COFINS_NUM"] > 0)]
-
-if not df_c100_cred.empty:
-    total_pis += df_c100_cred["VL_PIS_NUM"].sum()
-    total_cofins += df_c100_cred["VL_COFINS_NUM"].sum()
-    total_base_pis += df_c100_cred["VL_BC_PIS_NUM"].sum()
-    total_base_cofins += df_c100_cred["VL_BC_COFINS_NUM"].sum()
-
-if not df_outros_cred.empty:
-    total_pis += df_outros_cred["VL_PIS_NUM"].sum()
-    total_cofins += df_outros_cred["VL_COFINS_NUM"].sum()
-    total_base_pis += df_outros_cred["VL_BC_PIS_NUM"].sum()
-    total_base_cofins += df_outros_cred["VL_BC_COFINS_NUM"].sum()
-
-# Resumos por tipo de documento (Outros)
-df_servicos = resumo_tipo(df_outros, ["A100/A170"], "Serviços tomados (A100)")
-df_energia = resumo_tipo(df_outros, ["C500/C501/C505"], "Energia/Comunicação (C500)")
-df_fretes = resumo_tipo(df_outros, ["D100/D105"], "Fretes/Transporte (D100)")
-df_outros_docs = resumo_tipo(df_outros, ["F100/F120"], "Outros documentos (F100)")
-
-# Resumo por CFOP Mapeado (NF-e)
-df_cfop_map = resumo_cfop_mapeado(df_c100)
-
-# Consolidação de todos os resumos
-df_resumo_tipos = pd.concat(
-    [df_cfop_map, df_servicos, df_energia, df_fretes, df_outros_docs], ignore_index=True
-) if any(not x.empty for x in [df_cfop_map, df_servicos, df_energia, df_fretes, df_outros_docs]) else pd.DataFrame()
-
-# Resumo por CFOP (Original, para detalhamento)
-if not df_c100.empty:
-    df_cfop_summary = (
-        df_c100_cred.groupby(["COMPETENCIA", "EMPRESA", "CFOP"], as_index=False)[
-            ["VL_BC_PIS_NUM", "VL_BC_COFINS_NUM", "VL_PIS_NUM", "VL_COFINS_NUM"]
-        ]
-        .sum()
-        .rename(
-            columns={
-                "VL_BC_PIS_NUM": "BASE_PIS",
-                "VL_BC_COFINS_NUM": "BASE_COFINS",
-                "VL_PIS_NUM": "PIS",
-                "VL_COFINS_NUM": "COFINS",
+        # ------------ Bloco M – AP PIS (M200) e Créditos PIS (M105) ------------
+        if reg == "M200":
+            row = {
+                "COMPETENCIA": competencia,
+                "EMPRESA": empresa,
             }
-        )
-    )
-else:
-    df_cfop_summary = pd.DataFrame()
+            vals = p[2 : 2 + len(M200_HEADERS)]
+            for titulo, val in zip(M200_HEADERS, vals):
+                row[titulo] = _to_float(val)
+            records_ap_pis.append(row)
+            continue
 
-# =============================================================================
-# NAVEGAÇÃO COM ABAS
-# =============================================================================
+        if reg == "M105":
+            nat = _get(p, 2)
+            row = {
+                "COMPETENCIA": competencia,
+                "EMPRESA": empresa,
+                "NAT_BC_CRED": nat,
+                "CST_PIS": _get(p, 3),
+                "VL_BC": _to_float(_get(p, 4)),
+                "ALIQ": _to_float(_get(p, 5)),
+                "VL_CRED": _to_float(_get(p, 6)),
+            }
+            records_cred_pis.append(row)
+            continue
 
-tab_exec, tab_docs, tab_charts, tab_export = st.tabs(
-    ["📈 Executiva", "📋 Documentos", "📊 Gráficos", "💾 Exportar"]
-)
+    # Finaliza último C500
+    finalize_c500()
 
-# =============================================================================
-# ABA 1: VISÃO EXECUTIVA
-# =============================================================================
+    df_c100 = pd.DataFrame(records_c100)
+    df_outros = pd.DataFrame(records_out)
+    df_ap_pis = pd.DataFrame(records_ap_pis)
+    df_cred_pis = pd.DataFrame(records_cred_pis)
 
-with tab_exec:
-    st.markdown("<h2 class='section-title'>📊 Resumo Executivo</h2>", unsafe_allow_html=True)
-
-    # KPIs principais
-    kpi_cols = st.columns(4)
-
-    with kpi_cols[0]:
-        st.markdown(
-            f"""
-            <div class="kpi-card">
-                <div class="kpi-label">Créditos PIS</div>
-                <div class="kpi-value">{format_currency(total_pis)}</div>
-                <div class="kpi-subtitle">Identificados no SPED</div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-
-    with kpi_cols[1]:
-        st.markdown(
-            f"""
-            <div class="kpi-card secondary">
-                <div class="kpi-label">Créditos COFINS</div>
-                <div class="kpi-value">{format_currency(total_cofins)}</div>
-                <div class="kpi-subtitle">Identificados no SPED</div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-
-    with kpi_cols[2]:
-        st.markdown(
-            f"""
-            <div class="kpi-card">
-                <div class="kpi-label">Base PIS/COFINS</div>
-                <div class="kpi-value">{format_currency(total_base_pis)}</div>
-                <div class="kpi-subtitle">Valor total da base</div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-
-    with kpi_cols[3]:
-        st.markdown(
-            f"""
-            <div class="kpi-card accent">
-                <div class="kpi-label">Total Créditos</div>
-                <div class="kpi-value">{format_currency(total_pis + total_cofins)}</div>
-                <div class="kpi-subtitle">PIS + COFINS</div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-
-    st.markdown("<div class='divider'></div>", unsafe_allow_html=True)
-
-    # Composição por tipo de documento
-    st.markdown("<h3 class='subsection-title'>Composição dos Créditos por Tipo de Documento</h3>", unsafe_allow_html=True)
-
-    if not df_resumo_tipos.empty:
-        # Resumo consolidado
-        resumo_consolidado = df_resumo_tipos.groupby("GRUPO", as_index=False)[
-            ["BASE_PIS", "BASE_COFINS", "PIS", "COFINS"]
-        ].sum()
-        
-        resumo_consolidado["TOTAL"] = resumo_consolidado["PIS"] + resumo_consolidado["COFINS"]
-        resumo_consolidado = resumo_consolidado.sort_values(by="TOTAL", ascending=False)
-        
-        st.dataframe(
-            format_df_currency(resumo_consolidado),
-            use_container_width=True,
-            height=300,
-        )
-    else:
-        st.info("Nenhum crédito encontrado para a seleção atual.")
-
-    st.markdown("<div class='divider'></div>", unsafe_allow_html=True)
-
-    # Ranking de NCM
-    st.markdown("<h3 class='subsection-title'>🏆 Ranking de Créditos por NCM (Top 10)</h3>", unsafe_allow_html=True)
-
-    if not df_c100_cred.empty:
-        # Agrupa por NCM
-        df_ncm_ranking = (
-            df_c100_cred.groupby("NCM", as_index=False)
-            .agg(
-                Total_PIS=("VL_PIS_NUM", "sum"),
-                Total_COFINS=("VL_COFINS_NUM", "sum"),
-                Total_Creditos=("VL_PIS_NUM", "sum") + df_c100_cred["VL_COFINS_NUM"].sum(),
-                Produtos=("DESCR_ITEM", lambda x: ", ".join(x.unique()[:5])) # Top 5 produtos
-            )
-            .sort_values(by="Total_Creditos", ascending=False)
-            .head(10)
-        )
-        
-        # Formata para exibição
-        df_ncm_ranking = df_ncm_ranking.rename(columns={"Produtos": "Produtos (Top 5)"})
-        
-        st.dataframe(
-            format_df_currency(df_ncm_ranking),
-            use_container_width=True,
-            height=300,
-        )
-    else:
-        st.info("Nenhum crédito de NF-e (C100/C170) encontrado para o ranking de NCM.")
-
-    st.markdown("<div class='divider'></div>", unsafe_allow_html=True)
-
-    # Ranking de Produtos
-    st.markdown("<h3 class='subsection-title'>🏆 Ranking de Produtos com Mais Créditos (Top 10)</h3>", unsafe_allow_html=True)
-
-    if not df_c100_cred.empty:
-        # Agrupa por Código do Item e NCM
-        df_prod_ranking = (
-            df_c100_cred.groupby(["COD_ITEM", "DESCR_ITEM", "NCM"], as_index=False)
-            .agg(
-                Total_PIS=("VL_PIS_NUM", "sum"),
-                Total_COFINS=("VL_COFINS_NUM", "sum"),
-                Total_Creditos=("VL_PIS_NUM", "sum") + df_c100_cred["VL_COFINS_NUM"].sum(),
-            )
-            .sort_values(by="Total_Creditos", ascending=False)
-            .head(10)
-        )
-        
-        st.dataframe(
-            format_df_currency(df_prod_ranking),
-            use_container_width=True,
-            height=300,
-        )
-    else:
-        st.info("Nenhum crédito de NF-e (C100/C170) encontrado para o ranking de produtos.")
-
-
-# =============================================================================
-# ABA 2: DOCUMENTOS
-# =============================================================================
-
-with tab_docs:
-    st.markdown("<h2 class='section-title'>📋 Detalhamento Técnico</h2>", unsafe_allow_html=True)
-
-    # NF-e de Entrada (C100/C170)
-    st.markdown("<h3 class='subsection-title'>NF-e de Entrada (C100/C170) - Análise Detalhada</h3>", unsafe_allow_html=True)
-    if not df_c100_cred.empty:
-        cols_c100 = [
-            "COMPETENCIA", "EMPRESA", "NOME_PART", "DT_DOC", "CHV_NFE", "NUM_DOC", "COD_PART",
-            "CFOP", "NCM", "DESCR_ITEM", "VL_BC_PIS", "VL_PIS", "VL_BC_COFINS", "VL_COFINS"
-        ]
-        st.dataframe(
-            format_df_currency(df_c100_cred[cols_c100]),
-            use_container_width=True,
-            height=300,
-        )
-    else:
-        st.info("Nenhum documento C100/C170 com crédito encontrado para a seleção atual.")
-
-    st.markdown("<div class='divider'></div>", unsafe_allow_html=True)
-
-    # Demais Documentos de Crédito
-    st.markdown("<h3 class='subsection-title'>Demais Documentos de Crédito (A100, C500, D100, F100)</h3>", unsafe_allow_html=True)
-    if not df_outros_cred.empty:
-        
-        # Filtro por tipo de documento
-        tipos_doc = sorted(df_outros_cred["TIPO"].unique())
-        selected_tipos = st.multiselect("Filtrar por tipo de documento:", tipos_doc, default=tipos_doc)
-        
-        df_filtered = df_outros_cred[df_outros_cred["TIPO"].isin(selected_tipos)].copy()
-        
-        cols_outros = [
-            "COMPETENCIA", "EMPRESA", "TIPO", "DOC", "DT_DOC", "VL_BC_PIS", "VL_PIS", "VL_BC_COFINS", "VL_COFINS"
-        ]
-        
-        st.dataframe(
-            format_df_currency(df_filtered[cols_outros]),
-            use_container_width=True,
-            height=300,
-        )
-    else:
-        st.info("Nenhum outro documento de crédito encontrado para a seleção atual.")
-
-    st.markdown("<div class='divider'></div>", unsafe_allow_html=True)
-
-    # Resumo por CFOP (Original)
-    st.markdown("<h3 class='subsection-title'>Resumo por CFOP (Original)</h3>", unsafe_allow_html=True)
-    if not df_cfop_summary.empty:
-        df_cfop_summary["TOTAL"] = df_cfop_summary["PIS"] + df_cfop_summary["COFINS"]
-        df_cfop_summary = df_cfop_summary.sort_values(by="TOTAL", ascending=False)
-        st.dataframe(
-            format_df_currency(df_cfop_summary),
-            use_container_width=True,
-            height=300,
-        )
-    else:
-        st.info("Nenhum resumo por CFOP encontrado para a seleção atual.")
-
-
-# =============================================================================
-# ABA 3: GRÁFICOS
-# =============================================================================
-
-with tab_charts:
-    st.markdown("<h2 class='section-title'>📊 Visualizações Gráficas</h2>", unsafe_allow_html=True)
-
-    if not df_resumo_tipos.empty:
-        
-        # Gráfico 1: Distribuição Total de Créditos (PIS + COFINS)
-        st.markdown("<h3 class='subsection-title'>Distribuição Total de Créditos (PIS + COFINS)</h3>", unsafe_allow_html=True)
-        
-        df_chart = df_resumo_tipos.groupby("GRUPO", as_index=False)[["PIS", "COFINS"]].sum()
-        df_chart["TOTAL"] = df_chart["PIS"] + df_chart["COFINS"]
-        
-        fig_pie = px.pie(
-            df_chart,
-            values="TOTAL",
-            names="GRUPO",
-            title="Distribuição de Créditos por Tipo de Documento",
-            hole=0.3,
-            color_discrete_sequence=px.colors.qualitative.Bold,
-        )
-        fig_pie.update_traces(textinfo="percent+label", marker=dict(line=dict(color='#FFFFFF', width=1)))
-        fig_pie.update_layout(legend_title_text='Tipo de Documento')
-        st.plotly_chart(fig_pie, use_container_width=True)
-
-        st.markdown("<div class='divider'></div>", unsafe_allow_html=True)
-
-        # Gráfico 2: Comparativo PIS vs COFINS por Tipo de Documento
-        st.markdown("<h3 class='subsection-title'>Comparativo PIS vs COFINS por Tipo de Documento</h3>", unsafe_allow_html=True)
-        
-        df_bar = df_chart.melt(id_vars="GRUPO", value_vars=["PIS", "COFINS"], var_name="Imposto", value_name="Valor")
-        
-        fig_bar = px.bar(
-            df_bar,
-            x="GRUPO",
-            y="Valor",
-            color="Imposto",
-            title="Comparativo de Créditos PIS e COFINS",
-            barmode="group",
-            color_discrete_map={'PIS': '#1e3a8a', 'COFINS': '#0f766e'}
-        )
-        fig_bar.update_layout(xaxis_title="Tipo de Documento", yaxis_title="Valor (R$)")
-        st.plotly_chart(fig_bar, use_container_width=True)
-
-    else:
-        st.info("Não há dados suficientes para gerar gráficos.")
-
-
-# =============================================================================
-# ABA 4: EXPORTAR
-# =============================================================================
-
-with tab_export:
-    st.markdown("<h2 class='section-title'>💾 Exportar Dados</h2>", unsafe_allow_html=True)
-    st.info("Clique no botão abaixo para baixar um arquivo Excel consolidado com todas as tabelas de análise.")
-
-    # Cria um buffer para o arquivo Excel
-    buffer = io.BytesIO()
-
-    with pd.ExcelWriter(buffer, engine="xlsxwriter") as writer:
-        
-        # Aba 1: Resumo Executivo
-        if not df_resumo_tipos.empty:
-            df_resumo_tipos.to_excel(writer, sheet_name="RESUMO_EXECUTIVO", index=False)
-
-        # Aba 2: Detalhamento C100
-        if not df_c100.empty:
-            df_c100.to_excel(writer, sheet_name="DETALHAMENTO_C100", index=False)
-
-        # Aba 3: Detalhamento Outros
-        if not df_outros.empty:
-            df_outros.to_excel(writer, sheet_name="DETALHAMENTO_OUTROS", index=False)
-
-        # Aba 4: Resumo Consolidado
-        if not df_resumo_tipos.empty:
-            df_resumo_tipos.to_excel(writer, sheet_name="RESUMO_TIPOS_CONSOLIDADO", index=False)
-
-        # Aba 5: Resumo por CFOP (Original)
-        if not df_cfop_summary.empty:
-            df_cfop_summary.to_excel(writer, sheet_name="RESUMO_CFOP_ORIGINAL", index=False)
-
-        # Aba 6: Apuração PIS
-        if not df_ap.empty:
-            df_ap.to_excel(writer, sheet_name="APURACAO_PIS", index=False)
-
-        # Aba 7: Créditos PIS
-        if not df_cred.empty:
-            df_cred.to_excel(writer, sheet_name="CREDITOS_PIS", index=False)
-
-    buffer.seek(0)
-
-    st.download_button(
-        label="📥 Baixar Relatório Completo (Excel)",
-        data=buffer,
-        file_name="LavoraTax_Relatorio_PIS_COFINS.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    )
-
-    st.markdown("<div class='divider'></div>", unsafe_allow_html=True)
-
-    # Dicas de uso
-    st.markdown(
-        """
-        <div class="success-box">
-            <strong>✅ Dicas para melhor uso:</strong>  
-
-            • Mantenha os nomes dos arquivos descritivos (ex: SPED_01_2024.txt)  
-
-            • Envie arquivos de diferentes períodos para análise temporal  
-
-            • Use o Excel exportado para análises adicionais em ferramentas como Power BI  
-
-            • Compartilhe o relatório com sua equipe tributária e financeira
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+    return df_c100, df_outros, df_ap_pis, df_cred_pis, competencia, empresa
+```<ctrl95><ctrl42>call:default_api:message{text:
