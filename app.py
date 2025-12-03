@@ -1,6 +1,5 @@
-# app.py
 """
-LavoraTAX Advisor - Dashboard de EFD PIS/COFINS
+LavoraTAX Advisor - Dashboard de EFD PIS/COFINS (Streamlit)
 
 - Upload de múltiplos SPEDs (txt ou .zip)
 - Processamento com cache para melhor performance
@@ -9,7 +8,7 @@ LavoraTAX Advisor - Dashboard de EFD PIS/COFINS
 """
 
 import io
-from typing import List, Tuple
+from typing import List
 
 import pandas as pd
 import plotly.express as px
@@ -91,20 +90,18 @@ def resumo_tipo(df_outros: pd.DataFrame, tipos: List[str], label: str) -> pd.Dat
 def process_efd_file(name: str, data_bytes: bytes):
     """
     Processa UM arquivo (txt/zip) de EFD utilizando o parser,
-    com cache por (nome + conteúdo). Isso deixa a navegação
-    fluida depois do primeiro processamento.
+    com cache por (nome + conteúdo).
     """
     class FakeUpload:
         def __init__(self, fname, fdata):
             self.name = fname
             self._data = fdata
-
         def read(self):
             return self._data
 
     fake = FakeUpload(name, data_bytes)
     lines = load_efd_from_upload(fake)
-    return parse_efd_piscofins(lines)  # df_c100, df_outros, df_ap_pis, df_cred_pis, comp, emp
+    return parse_efd_piscofins(lines)
 
 
 # ==========================================================
@@ -117,7 +114,6 @@ st.set_page_config(
     layout="wide",
 )
 
-# CSS
 st.markdown(
     """
     <style>
@@ -202,7 +198,6 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# Header
 st.markdown(
     """
     <div class="ltx-title">LavoraTAX Advisor • EFD PIS/COFINS</div>
@@ -212,6 +207,7 @@ st.markdown(
     """,
     unsafe_allow_html=True,
 )
+
 
 # ==========================================================
 # UPLOAD
@@ -238,6 +234,7 @@ if not uploaded_files:
     st.info("Carregue ao menos um arquivo de EFD PIS/COFINS para iniciar a análise.")
     st.stop()
 
+
 # ==========================================================
 # PROCESSAMENTO (com cache)
 # ==========================================================
@@ -253,7 +250,7 @@ status = st.empty()
 for i, f in enumerate(uploaded_files, start=1):
     status.text(f"Processando arquivo {i}/{len(uploaded_files)}: {f.name}")
     try:
-        data_bytes = f.read()  # conteúdo bruto
+        data_bytes = f.read()
         (
             df_c100_file,
             df_outros_file,
@@ -293,6 +290,7 @@ df_ap_pis = pd.concat(dfs_ap_pis, ignore_index=True) if dfs_ap_pis else pd.DataF
 df_cred_pis = (
     pd.concat(dfs_cred_pis, ignore_index=True) if dfs_cred_pis else pd.DataFrame()
 )
+
 
 # ==========================================================
 # NORMALIZAÇÃO NUMÉRICA
@@ -368,6 +366,7 @@ else:
         columns=["COMPETENCIA", "EMPRESA", "CFOP", "BASE_PIS", "BASE_COFINS", "PIS", "COFINS"]
     )
 
+
 # ==========================================================
 # ABAS
 # ==========================================================
@@ -432,13 +431,14 @@ with tab_exec:
 
     st.markdown("---")
 
-    # 🔎 Nova navegação "um resumo por vez"
-    st.markdown('<div class="ltx-section-title">Resumo executivo por empresa / competência</div>', unsafe_allow_html=True)
+    st.markdown(
+        '<div class="ltx-section-title">Resumo executivo por empresa / competência</div>',
+        unsafe_allow_html=True,
+    )
 
     if df_resumo_tipos.empty:
         st.info("Nenhum crédito consolidado por tipo de documento foi identificado.")
     else:
-        # Combos de COMPETENCIA + EMPRESA
         combos = (
             df_resumo_tipos[["COMPETENCIA", "EMPRESA"]]
             .drop_duplicates()
@@ -446,8 +446,8 @@ with tab_exec:
         )
 
         combo_labels = [
-            f"{row.COMP
-ETENCIA} - {row.EMPRESA}" for row in combos.itertuples(index=False)
+            f"{row['COMPETENCIA']} - {row['EMPRESA']}"
+            for _, row in combos.iterrows()
         ]
         selected_label = st.selectbox(
             "Selecione a competência e empresa para visualizar o resumo:",
@@ -477,7 +477,7 @@ ETENCIA} - {row.EMPRESA}" for row in combos.itertuples(index=False)
                 df_grupo,
                 ["BASE_PIS", "BASE_COFINS", "PIS", "COFINS", "TOTAL_PIS_COFINS"],
             )
-            st.dataframe(df_grupo_fmt, use_container_width=True, height=200)
+            st.dataframe(df_grupo_fmt, use_container_width=True, height=220)
 
 # ----------------------------------------------------------
 # Detalhamento Técnico
