@@ -300,27 +300,27 @@ def parse_efd_piscofins(
         if reg == "A170" and current_a100:
             # A100 - Campos corretos (contando de 0):
             # 6: NUM_DOC, 11: DT_VENC
-            # Baseado no exemplo do usuário: |...|382,45|6,31|382,45|29,07|...
             
             num_doc = _get(current_a100, 6)
             dt_doc = _get(current_a100, 11)
             
-            # Ajustado para os campos 16, 17, 18, 19 que correspondem ao exemplo
+            # Baseado no exemplo do usuário: |...|382,45|6,31|382,45|29,07|...
             # 16: VL_BC_PIS, 17: VL_PIS, 18: VL_BC_COFINS, 19: VL_COFINS
+            
+            # Extração dos campos principais (PIS/COFINS)
             vl_bc_pis = _get(current_a100, 16)
             vl_pis = _get(current_a100, 17)
             vl_bc_cof = _get(current_a100, 18)
             vl_cof = _get(current_a100, 19)
             
-            # Se o campo 16 for 0, tenta o campo 18 (VL_BC_PIS_OUTRAS)
-            if _to_float(vl_bc_pis) == 0.0 and len(current_a100) > 18:
-                vl_bc_pis = _get(current_a100, 18)
-                vl_pis = _get(current_a100, 19)
+            # Se os campos principais forem 0, tenta os campos OUTRAS (20, 21, 22, 23)
+            if _to_float(vl_pis) == 0.0 and len(current_a100) > 20:
+                vl_bc_pis = _get(current_a100, 20)
+                vl_pis = _get(current_a100, 21)
             
-            # Se o campo 18 for 0, tenta o campo 20 (VL_BC_COFINS_OUTRAS)
-            if _to_float(vl_bc_cof) == 0.0 and len(current_a100) > 20:
-                vl_bc_cof = _get(current_a100, 20)
-                vl_cof = _get(current_a100, 21)
+            if _to_float(vl_cof) == 0.0 and len(current_a100) > 22:
+                vl_bc_cof = _get(current_a100, 22)
+                vl_cof = _get(current_a100, 23)
 
             if _to_float(vl_pis) > 0.0 or _to_float(vl_cof) > 0.0:
                 records_out.append(
@@ -468,4 +468,3 @@ def parse_efd_piscofins(
     df_cred_pis = pd.DataFrame(records_cred_pis)
 
     return df_c100, df_outros, df_ap_pis, df_cred_pis, competencia, empresa
-```<ctrl95><ctrl42>call:default_api:message{text:
