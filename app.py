@@ -6,8 +6,8 @@ Painel executivo premium para análise consolidada de créditos de PIS/COFINS.
 Otimizado para CEO, CFO, Diretores Tributários e Financeiros.
 
 Principais melhorias v3.2.4:
+* **FIX:** Corrigido o loop infinito causado por st.rerun() na remoção de arquivos.
 * **FIX:** Corrigida a extração de PIS/COFINS para o registro A100 no parser.
-* **FIX:** Corrigido o erro de NameError ('_decode_bytes' is not defined) na função parse_file.
 * **FIX:** Estabilidade e correção de loops no parser.
 * **BRANDING:** Renomeado para LavoraTax Advisor (braço da Lavoratory Group).
 """
@@ -286,7 +286,7 @@ def format_df_currency(df: pd.DataFrame) -> pd.DataFrame:
     df_formatted = df.copy()
     
     # Colunas a serem formatadas
-    cols_to_format = ["BASE_PIS", "BASE_COFINS", "PIS", "COFINS", "TOTAL", "TOTAL_PIS_COFINS", "VL_BC_PIS", "VL_PIS", "VL_BC_COFINS", "VL_COFINS", "Total_PIS", "Total_COFINS", "Total_Creditos", "Valor"]
+    cols_to_format = ["BASE_PIS", "BASE_COFINS", "PIS", "COFINS", "TOTAL", "TOTAL_PIS_COFINS", "VL_BC_PIS", "VL_PIS", "VL_BC_COFINS", "VL_COFINS", "Total_PIS", "Total_COFINS", "Total_Creditos"]
     
     for col in cols_to_format:
         if col in df_formatted.columns:
@@ -362,9 +362,8 @@ CFOP_MAP = {
     "2949": "Outras Entradas",
 }
 
-
 def resumo_cfop_mapeado(df_c100: pd.DataFrame) -> pd.DataFrame:
-    """Agrupa créditos de NF-e por CFOP mapeado."""
+    """Agrupa créditos de NF-e (C100/C170) por CFOP mapeado."""
     cols = [
         "COMPETENCIA",
         "EMPRESA",
@@ -378,22 +377,21 @@ def resumo_cfop_mapeado(df_c100: pd.DataFrame) -> pd.DataFrame:
         return pd.DataFrame(columns=cols)
 
     df = df_c100.copy()
-    
-    # Filtra apenas documentos com crédito real
+    df["CFOP_GRUPO"] = df["CFOP"].astype(str).map(CFOP_MAP).fillna("Outras NF-e de Entrada")
+
+    # Filtra apenas documentos com crédito real (PIS ou COFINS > 0)
     df = df[(df["VL_PIS_NUM"] > 0) | (df["VL_COFINS_NUM"] > 0)]
     if df.empty:
         return pd.DataFrame(columns=cols)
 
-    # Mapeia CFOP
-    df["GRUPO"] = df["CFOP"].astype(str).map(CFOP_MAP).fillna("Outras NF-e (C100)")
-
     grouped = (
-        df.groupby(["COMPETENCIA", "EMPRESA", "GRUPO"], as_index=False)[
+        df.groupby(["COMPETENCIA", "EMPRESA", "CFOP_GRUPO"], as_index=False)[
             ["VL_BC_PIS_NUM", "VL_BC_COFINS_NUM", "VL_PIS_NUM", "VL_COFINS_NUM"]
         ]
         .sum()
         .rename(
             columns={
+                "CFOP_GRUPO": "GRUPO",
                 "VL_BC_PIS_NUM": "BASE_PIS",
                 "VL_BC_COFINS_NUM": "BASE_COFINS",
                 "VL_PIS_NUM": "PIS",
@@ -412,44 +410,74 @@ def parse_file(uploaded_file) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame,
 
 
 # =============================================================================
-# INICIALIZAÇÃO E CARREGAMENTO
+# INICIALIZAR SESSION STATE
 # =============================================================================
 
-# Inicializa o estado da sessão
 if "files_data" not in st.session_state:
     st.session_state.files_data = []
 
-# Cabeçalho
+# =============================================================================
+# CABEÇALHO E UPLOAD
+# =============================================================================
+
 st.markdown(
     """
     <div class="header-main">
-        <h1>LavoraTax Advisor</h1>
-        <p>Painel Executivo de Análise de Créditos PIS/COFINS (EFD Contribuições)</p>
+        <h1>📊 LavoraTax Advisor</h1>
+        <p>Análise Executiva Premium de Créditos PIS/COFINS – EFD Contribuições</p>
     </div>
     """,
     unsafe_allow_html=True,
 )
 
-# Upload de arquivos
-uploaded_files = st.file_uploader(
-    "📤 Carregar Arquivos SPED PIS/COFINS (.txt ou .zip)",
-    type=["txt", "zip"],
-    accept_multiple_files=True,
-    key="file_uploader",
-)
+st.markdown("### 📁 Carregue seus arquivos SPED")
 
-# Processamento de arquivos
+col_upload, col_info = st.columns([2, 1])
+
+with col_upload:
+    uploaded_files = st.file_uploader(
+        "Selecione 1 a 12 arquivos EFD PIS/COFINS (.txt ou .zip)",
+        type=["txt", "zip"],
+        accept_multiple_files=True,
+        help="Você pode enviar múltiplos arquivos de diferentes empresas ou períodos.",
+    )
+
+with col_info:
+    st.info(
+        """
+        **Dicas:**
+        - Máximo 12 arquivos por sessão
+        - Formatos: .txt ou .zip
+        - Processamento automático com cache
+        """
+    )
+
+if not uploaded_files and not st.session_state.files_data:
+    st.warning("👉 Envie ao menos um arquivo para iniciar a análise.")
+    st.stop()
+
+if len(uploaded_files) > 12:
+    st.error("❌ Máximo de 12 arquivos permitidos por sessão.")
+    st.stop()
+
+# =============================================================================
+# PROCESSAMENTO DOS ARQUIVOS (OTIMIZADO COM SESSION STATE)
+# =============================================================================
+
+# Limpa o estado se novos arquivos foram carregados
 if uploaded_files:
-    # Verifica se há novos arquivos para processar
-    new_files = [f for f in uploaded_files if f.name not in [d['name'] for d in st.session_state.files_data]]
+    # Verifica se a lista de arquivos mudou
+    current_file_names = [f.name for f in uploaded_files]
+    session_file_names = [d['name'] for d in st.session_state.files_data]
     
-    if new_files:
+    if set(current_file_names) != set(session_file_names) or len(current_file_names) != len(session_file_names):
+        st.session_state.files_data = []
         
         # Processar arquivos
         progress_bar = st.progress(0)
         status_text = st.empty()
 
-        for idx, f in enumerate(new_files):
+        for idx, f in enumerate(uploaded_files):
             try:
                 status_text.text(f"⏳ Processando: {f.name}")
                 
@@ -468,11 +496,10 @@ if uploaded_files:
             except Exception as e:
                 st.error(f"❌ Erro ao processar {f.name}: {str(e)}")
 
-            progress_bar.progress((idx + 1) / len(new_files))
+            progress_bar.progress((idx + 1) / len(uploaded_files))
 
         status_text.empty()
         progress_bar.empty()
-        st.rerun() # Força o rerun para atualizar a lista de arquivos e filtros
 
 # =============================================================================
 # EXIBIÇÃO E FILTROS
@@ -522,7 +549,7 @@ with st.expander("📂 Ver detalhes e remover arquivos", expanded=False):
         # Remove em ordem decrescente para não bagunçar os índices
         for idx in sorted(files_to_remove, reverse=True):
             st.session_state.files_data.pop(idx)
-        st.rerun()
+        st.rerun() # Mantido para forçar a atualização após a remoção
 
 st.markdown("<div class='divider'></div>", unsafe_allow_html=True)
 
