@@ -536,14 +536,24 @@ with st.expander("📂 Ver detalhes e remover arquivos", expanded=False):
     # Cria uma cópia da lista para iteração e remoção
     files_to_remove = []
     
+    # Cabeçalho da tabela
+    col_header_comp, col_header_cnpj, col_header_remove = st.columns([2, 2, 1])
+    col_header_comp.markdown("**Competência (Mês/Ano)**")
+    col_header_cnpj.markdown("**CNPJ da Empresa**")
+    col_header_remove.markdown("**Ação**")
+    
+    st.divider()
+    
     for idx, data in enumerate(st.session_state.files_data):
-        col_name, col_comp, col_emp, col_remove = st.columns([3, 1, 2, 0.5])
+        col_comp, col_cnpj, col_remove = st.columns([2, 2, 1])
         
-        col_name.text(data['name'])
-        col_comp.text(data['competencia'])
-        col_emp.text(data['empresa'])
+        # Formata a competência para Mês/Ano
+        comp_formatted = data['competencia']
         
-        if col_remove.button("❌", key=f"remove_{idx}"):
+        col_comp.text(comp_formatted)
+        col_cnpj.text(data['empresa'])
+        
+        if col_remove.button("Remover", key=f"remove_{idx}"):
             files_to_remove.append(idx)
 
     # Remove os arquivos marcados
