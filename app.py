@@ -778,12 +778,12 @@ with tab_exec:
             .agg(
                 Total_PIS=("VL_PIS_NUM", "sum"),
                 Total_COFINS=("VL_COFINS_NUM", "sum"),
-                Total_Creditos=df_c100_cred["VL_PIS_NUM"].sum() + df_c100_cred["VL_COFINS_NUM"].sum(),
                 Produtos=("DESCR_ITEM", lambda x: ", ".join(x.unique()[:5])) # Top 5 produtos
             )
-            .sort_values(by="Total_Creditos", ascending=False)
-            .head(10)
         )
+        # Calcula o total de créditos por NCM
+        df_ncm_ranking["Total_Creditos"] = df_ncm_ranking["Total_PIS"] + df_ncm_ranking["Total_COFINS"]
+        df_ncm_ranking = df_ncm_ranking.sort_values(by="Total_Creditos", ascending=False).head(10)
         
         # Formata para exibição
         df_ncm_ranking = df_ncm_ranking.rename(columns={"Produtos": "Produtos (Top 5)"})
@@ -808,11 +808,11 @@ with tab_exec:
             .agg(
                 Total_PIS=("VL_PIS_NUM", "sum"),
                 Total_COFINS=("VL_COFINS_NUM", "sum"),
-                Total_Creditos=df_c100_cred["VL_PIS_NUM"].sum() + df_c100_cred["VL_COFINS_NUM"].sum(),
             )
-            .sort_values(by="Total_Creditos", ascending=False)
-            .head(10)
         )
+        # Calcula o total de créditos por produto
+        df_prod_ranking["Total_Creditos"] = df_prod_ranking["Total_PIS"] + df_prod_ranking["Total_COFINS"]
+        df_prod_ranking = df_prod_ranking.sort_values(by="Total_Creditos", ascending=False).head(10)
         
         st.dataframe(
             format_df_currency(df_prod_ranking),
