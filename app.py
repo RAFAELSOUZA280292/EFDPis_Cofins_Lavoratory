@@ -1,11 +1,12 @@
 """
-LavoraTax Advisor – EFD PIS/COFINS (Versão 3.2 - Premium Executiva Otimizada)
+LavoraTax Advisor – EFD PIS/COFINS (Versão 3.2.1 - Premium Executiva Otimizada)
 ================================================================================
 
 Painel executivo premium para análise consolidada de créditos de PIS/COFINS.
 Otimizado para CEO, CFO, Diretores Tributários e Financeiros.
 
-Principais melhorias v3.2:
+Principais melhorias v3.2.1:
+* **FIX:** Corrigido o erro de carregamento infinito (loop/falha) no parser.
 * **FIX:** Extração correta de dados de A100, C500, D100 e F100 no parser.
 * **FIX:** Exibição da Chave de Acesso (CHV_NFE) na tabela C100/C170.
 * **FIX:** Exibição correta de bases e valores nos Demais Documentos de Crédito.
@@ -286,7 +287,7 @@ def format_df_currency(df: pd.DataFrame) -> pd.DataFrame:
     df_formatted = df.copy()
     
     # Colunas a serem formatadas
-    cols_to_format = ["BASE_PIS", "BASE_COFINS", "PIS", "COFINS", "TOTAL", "TOTAL_PIS_COFINS", "VL_BC_PIS", "VL_PIS", "VL_BC_COFINS", "VL_COFINS", "Total_PIS", "Total_COFINS", "Total_Creditos"]
+    cols_to_format = ["BASE_PIS", "BASE_COFINS", "PIS", "COFINS", "TOTAL", "TOTAL_PIS_COFINS", "VL_BC_PIS", "VL_PIS", "VL_BC_COFINS", "VL_COFINS", "Total_PIS", "Total_COFINS", "Total_Creditos", "Valor"]
     
     for col in cols_to_format:
         if col in df_formatted.columns:
@@ -326,7 +327,6 @@ def resumo_tipo(df_outros: pd.DataFrame, tipos: List[str], label: str) -> pd.Dat
     df["VL_COFINS_NUM"] = df["VL_COFINS"].apply(to_float)
 
     # Apenas documentos com crédito real (PIS ou COFINS > 0)
-    # **REVISÃO:** Mantido o filtro para garantir que apenas documentos com crédito sejam contabilizados no resumo.
     df = df[(df["VL_PIS_NUM"] > 0) | (df["VL_COFINS_NUM"] > 0)]
     if df.empty:
         return pd.DataFrame(columns=cols)
@@ -363,8 +363,9 @@ CFOP_MAP = {
     "2949": "Outras Entradas",
 }
 
+
 def resumo_cfop_mapeado(df_c100: pd.DataFrame) -> pd.DataFrame:
-    """Agrupa créditos de NF-e (C100/C170) por CFOP mapeado."""
+    """Agrupa créditos de NF-e por CFOP mapeado."""
     cols = [
         "COMPETENCIA",
         "EMPRESA",
@@ -378,21 +379,22 @@ def resumo_cfop_mapeado(df_c100: pd.DataFrame) -> pd.DataFrame:
         return pd.DataFrame(columns=cols)
 
     df = df_c100.copy()
-    df["CFOP_GRUPO"] = df["CFOP"].astype(str).map(CFOP_MAP).fillna("Outras NF-e de Entrada")
-
-    # Filtra apenas documentos com crédito real (PIS ou COFINS > 0)
+    
+    # Filtra apenas documentos com crédito real
     df = df[(df["VL_PIS_NUM"] > 0) | (df["VL_COFINS_NUM"] > 0)]
     if df.empty:
         return pd.DataFrame(columns=cols)
 
+    # Mapeia CFOP
+    df["GRUPO"] = df["CFOP"].astype(str).map(CFOP_MAP).fillna("Outras NF-e (C100)")
+
     grouped = (
-        df.groupby(["COMPETENCIA", "EMPRESA", "CFOP_GRUPO"], as_index=False)[
+        df.groupby(["COMPETENCIA", "EMPRESA", "GRUPO"], as_index=False)[
             ["VL_BC_PIS_NUM", "VL_BC_COFINS_NUM", "VL_PIS_NUM", "VL_COFINS_NUM"]
         ]
         .sum()
         .rename(
             columns={
-                "CFOP_GRUPO": "GRUPO",
                 "VL_BC_PIS_NUM": "BASE_PIS",
                 "VL_BC_COFINS_NUM": "BASE_COFINS",
                 "VL_PIS_NUM": "PIS",
@@ -403,110 +405,62 @@ def resumo_cfop_mapeado(df_c100: pd.DataFrame) -> pd.DataFrame:
     return grouped
 
 
-@st.cache_data(show_spinner=False)
 def parse_file(uploaded_file) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, str, str]:
-    """Processa arquivo EFD com cache."""
-    # Lê o arquivo e converte em linhas
+    """
+    Recebe um UploadedFile do Streamlit (txt ou zip) e processa o SPED.
+    """
     raw = uploaded_file.read()
     name = uploaded_file.name.lower()
 
     if name.endswith(".zip"):
-        # Extrai .txt do .zip
-        try:
-            with zipfile.ZipFile(io.BytesIO(raw)) as z:
-                for fname in z.namelist():
-                    if fname.lower().endswith(".txt"):
-                        with z.open(fname) as f:
-                            data = f.read()
-                            try:
-                                text = data.decode("utf-8")
-                            except Exception:
-                                text = data.decode("latin-1", errors="ignore")
-                            lines = [ln for ln in text.splitlines() if ln.strip()]
-                            return parse_efd_piscofins(lines)
-        except Exception:
-            pass
-    
-    # Decodifica .txt
-    try:
-        text = raw.decode("utf-8")
-    except Exception:
-        text = raw.decode("latin-1", errors="ignore")
-    
+        text = _extract_txt_from_zip(raw)
+    else:
+        text = _decode_bytes(raw)
+
     lines = [ln for ln in text.splitlines() if ln.strip()]
+    
     return parse_efd_piscofins(lines)
 
 
 # =============================================================================
-# INICIALIZAR SESSION STATE
+# INICIALIZAÇÃO E CARREGAMENTO
 # =============================================================================
 
+# Inicializa o estado da sessão
 if "files_data" not in st.session_state:
     st.session_state.files_data = []
 
-# =============================================================================
-# CABEÇALHO E UPLOAD
-# =============================================================================
-
+# Cabeçalho
 st.markdown(
     """
     <div class="header-main">
-        <h1>📊 LavoraTax Advisor</h1>
-        <p>Análise Executiva Premium de Créditos PIS/COFINS – EFD Contribuições</p>
+        <h1>LavoraTax Advisor</h1>
+        <p>Painel Executivo de Análise de Créditos PIS/COFINS (EFD Contribuições)</p>
     </div>
     """,
     unsafe_allow_html=True,
 )
 
-st.markdown("### 📁 Carregue seus arquivos SPED")
+# Upload de arquivos
+uploaded_files = st.file_uploader(
+    "📤 Carregar Arquivos SPED PIS/COFINS (.txt ou .zip)",
+    type=["txt", "zip"],
+    accept_multiple_files=True,
+    key="file_uploader",
+)
 
-col_upload, col_info = st.columns([2, 1])
-
-with col_upload:
-    uploaded_files = st.file_uploader(
-        "Selecione 1 a 12 arquivos EFD PIS/COFINS (.txt ou .zip)",
-        type=["txt", "zip"],
-        accept_multiple_files=True,
-        help="Você pode enviar múltiplos arquivos de diferentes empresas ou períodos.",
-    )
-
-with col_info:
-    st.info(
-        """
-        **Dicas:**
-        - Máximo 12 arquivos por sessão
-        - Formatos: .txt ou .zip
-        - Processamento automático com cache
-        """
-    )
-
-if not uploaded_files and not st.session_state.files_data:
-    st.warning("👉 Envie ao menos um arquivo para iniciar a análise.")
-    st.stop()
-
-if len(uploaded_files) > 12:
-    st.error("❌ Máximo de 12 arquivos permitidos por sessão.")
-    st.stop()
-
-# =============================================================================
-# PROCESSAMENTO DOS ARQUIVOS (OTIMIZADO COM SESSION STATE)
-# =============================================================================
-
-# Limpa o estado se novos arquivos foram carregados
+# Processamento de arquivos
 if uploaded_files:
-    # Verifica se a lista de arquivos mudou
-    current_file_names = [f.name for f in uploaded_files]
-    session_file_names = [d['name'] for d in st.session_state.files_data]
+    # Verifica se há novos arquivos para processar
+    new_files = [f for f in uploaded_files if f.name not in [d['name'] for d in st.session_state.files_data]]
     
-    # Verifica se a lista de arquivos mudou ou se o número de arquivos é diferente
-    if set(current_file_names) != set(session_file_names) or len(current_file_names) != len(session_file_names):
-        st.session_state.files_data = []
+    if new_files:
         
         # Processar arquivos
         progress_bar = st.progress(0)
         status_text = st.empty()
 
-        for idx, f in enumerate(uploaded_files):
+        for idx, f in enumerate(new_files):
             try:
                 status_text.text(f"⏳ Processando: {f.name}")
                 
@@ -525,10 +479,11 @@ if uploaded_files:
             except Exception as e:
                 st.error(f"❌ Erro ao processar {f.name}: {str(e)}")
 
-            progress_bar.progress((idx + 1) / len(uploaded_files))
+            progress_bar.progress((idx + 1) / len(new_files))
 
         status_text.empty()
         progress_bar.empty()
+        st.rerun() # Força o rerun para atualizar a lista de arquivos e filtros
 
 # =============================================================================
 # EXIBIÇÃO E FILTROS
@@ -1029,7 +984,6 @@ with tab_charts:
             title="Comparativo de Créditos",
             barmode="group",
             color_discrete_map={"PIS": "#1e3a8a", "COFINS": "#0f766e"},
-            labels={"Valor": "Valor (R$)", "GRUPO": "Tipo de Documento"},
         )
         fig_bar.update_layout(
             hovermode="x unified",
