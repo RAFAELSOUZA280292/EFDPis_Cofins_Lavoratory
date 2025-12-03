@@ -1,5 +1,5 @@
 """
-LavoraTAX Advisor – EFD PIS/COFINS (Versão 2.0 - Executiva)
+LavoraTAX Advisor – EFD PIS/COFINS (Versão 2.1 - Executiva)
 ===========================================================
 
 Painel executivo para análise consolidada de créditos de PIS/COFINS.
@@ -13,6 +13,8 @@ Principais melhorias:
 * Tabelas filtráveis e exportáveis
 * Consolidação inteligente de múltiplos SPEDs
 * Performance otimizada com cache
+* **FIX:** Formatação de moeda brasileira nas tabelas
+* **NEW:** Consolidação de créditos de NF-e (C100/C170) por CFOP mapeado
 """
 
 import io
@@ -260,8 +262,24 @@ def to_float(value) -> float:
 
 
 def format_currency(value: float) -> str:
-    """Formata valor como moeda brasileira."""
+    """Formata valor como moeda brasileira (R$ 1.234,56)."""
+    # Usa o locale para formatação correta (milhar com ponto, decimal com vírgula)
     return f"R$ {value:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+
+def format_df_currency(df: pd.DataFrame) -> pd.io.formats.style.Styler:
+    """Aplica a formatação de moeda brasileira a colunas monetárias de um DataFrame."""
+    format_dict = {}
+    # Colunas a serem formatadas
+    cols_to_format = ["BASE_PIS", "BASE_COFINS", "PIS", "COFINS", "TOTAL", "TOTAL_PIS_COFINS", "VL_BC_PIS", "VL_PIS", "VL_BC_COFINS", "VL_COFINS"]
+
+    for col in cols_to_format:
+        if col in df.columns:
+            # Formato brasileiro: milhar com ponto, decimal com vírgula
+            format_dict[col] = "R$ {:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+    # Aplica a formatação
+    return df.style.format(format_dict)
 
 
 def resumo_tipo(df_outros: pd.DataFrame, tipos: List[str], label: str) -> pd.DataFrame:
@@ -302,6 +320,57 @@ def resumo_tipo(df_outros: pd.DataFrame, tipos: List[str], label: str) -> pd.Dat
         )
     )
     grouped.insert(2, "GRUPO", label)
+    return grouped
+
+
+# Mapeamento de CFOPs para grupos de crédito
+CFOP_MAP = {
+    "1102": "Compra para Comercialização",
+    "2102": "Compra para Comercialização",
+    "1403": "Compra para Comercialização com ST",
+    "2403": "Compra para Comercialização com ST",
+    "1202": "Devolução de Venda",
+    "2202": "Devolução de Venda",
+    "1411": "Devolução de Venda com ST",
+    "1909": "Entrada em Comodato",
+    "1949": "Outras Entradas",
+    "2949": "Outras Entradas",
+}
+
+def resumo_cfop_mapeado(df_c100: pd.DataFrame) -> pd.DataFrame:
+    """Agrupa créditos de NF-e (C100/C170) por CFOP mapeado."""
+    cols = [
+        "COMPETENCIA",
+        "EMPRESA",
+        "GRUPO",
+        "BASE_PIS",
+        "BASE_COFINS",
+        "PIS",
+        "COFINS",
+    ]
+    if df_c100.empty:
+        return pd.DataFrame(columns=cols)
+
+    # Cria a coluna de CFOP Mapeado
+    df = df_c100.copy()
+    df["CFOP_GRUPO"] = df["CFOP"].astype(str).map(CFOP_MAP).fillna("Outras NF-e de Entrada")
+
+    # Agrupa por Competência, Empresa e CFOP Mapeado
+    grouped = (
+        df.groupby(["COMPETENCIA", "EMPRESA", "CFOP_GRUPO"], as_index=False)[
+            ["VL_BC_PIS_NUM", "VL_BC_COFINS_NUM", "VL_PIS_NUM", "VL_COFINS_NUM"]
+        ]
+        .sum()
+        .rename(
+            columns={
+                "CFOP_GRUPO": "GRUPO",
+                "VL_BC_PIS_NUM": "BASE_PIS",
+                "VL_BC_COFINS_NUM": "BASE_COFINS",
+                "VL_PIS_NUM": "PIS",
+                "VL_COFINS_NUM": "COFINS",
+            }
+        )
+    )
     return grouped
 
 
@@ -484,17 +553,21 @@ total_cred_pis = 0.0
 if not df_cred.empty and "VL_CRED" in df_cred.columns:
     total_cred_pis = df_cred["VL_CRED"].apply(to_float).sum()
 
-# Resumos por tipo de documento
+# Resumos por tipo de documento (Outros)
 df_servicos = resumo_tipo(df_outros, ["A100/A170"], "Serviços tomados")
 df_energia = resumo_tipo(df_outros, ["C500/C501/C505"], "Energia elétrica")
 df_fretes = resumo_tipo(df_outros, ["D100/D101", "D100/D105"], "Fretes/Transporte")
 df_outros_docs = resumo_tipo(df_outros, ["F100/F120"], "Outros documentos")
 
-df_resumo_tipos = pd.concat(
-    [df_servicos, df_energia, df_fretes, df_outros_docs], ignore_index=True
-) if any(not x.empty for x in [df_servicos, df_energia, df_fretes, df_outros_docs]) else pd.DataFrame()
+# Resumo por CFOP Mapeado (NF-e)
+df_cfop_map = resumo_cfop_mapeado(df_c100)
 
-# Resumo por CFOP
+# Consolidação de todos os resumos
+df_resumo_tipos = pd.concat(
+    [df_cfop_map, df_servicos, df_energia, df_fretes, df_outros_docs], ignore_index=True
+) if any(not x.empty for x in [df_cfop_map, df_servicos, df_energia, df_fretes, df_outros_docs]) else pd.DataFrame()
+
+# Resumo por CFOP (Original, para detalhamento)
 if not df_c100.empty:
     df_cfop_summary = (
         df_c100.groupby(["COMPETENCIA", "EMPRESA", "CFOP"], as_index=False)[
@@ -597,13 +670,7 @@ with tab_exec:
 
         with col1:
             st.dataframe(
-                resumo_consolidado.style.format({
-                    "BASE_PIS": "R$ {:.2f}".format,
-                    "BASE_COFINS": "R$ {:.2f}".format,
-                    "PIS": "R$ {:.2f}".format,
-                    "COFINS": "R$ {:.2f}".format,
-                    "TOTAL": "R$ {:.2f}".format,
-                }),
+                format_df_currency(resumo_consolidado),
                 use_container_width=True,
                 height=300,
             )
@@ -657,13 +724,7 @@ with tab_exec:
                 df_sel_display["TOTAL"] = df_sel_display["PIS"] + df_sel_display["COFINS"]
 
                 st.dataframe(
-                    df_sel_display.style.format({
-                        "BASE_PIS": "R$ {:.2f}".format,
-                        "BASE_COFINS": "R$ {:.2f}".format,
-                        "PIS": "R$ {:.2f}".format,
-                        "COFINS": "R$ {:.2f}".format,
-                        "TOTAL": "R$ {:.2f}".format,
-                    }),
+                    format_df_currency(df_sel_display),
                     use_container_width=True,
                     height=250,
                 )
@@ -683,10 +744,10 @@ with tab_docs:
     else:
         st.metric("Total de linhas de NF-e", len(df_c100))
         st.dataframe(
-            df_c100[[
+            format_df_currency(df_c100[[
                 "COMPETENCIA", "EMPRESA", "NUM_DOC", "DT_DOC", "COD_PART",
                 "CFOP", "VL_BC_PIS", "VL_PIS", "VL_BC_COFINS", "VL_COFINS"
-            ]],
+            ]]),
             use_container_width=True,
             height=400,
         )
@@ -712,10 +773,10 @@ with tab_docs:
         df_outros_filtrado = df_outros[df_outros["TIPO"].isin(tipo_selecionado)]
 
         st.dataframe(
-            df_outros_filtrado[[
+            format_df_currency(df_outros_filtrado[[
                 "COMPETENCIA", "EMPRESA", "TIPO", "DOC", "DT_DOC",
                 "VL_BC_PIS", "VL_PIS", "VL_BC_COFINS", "VL_COFINS"
-            ]],
+            ]]),
             use_container_width=True,
             height=400,
         )
@@ -729,12 +790,7 @@ with tab_docs:
         st.info("ℹ️ Não há dados de CFOP disponíveis.")
     else:
         st.dataframe(
-            df_cfop_summary.style.format({
-                "BASE_PIS": "R$ {:.2f}".format,
-                "BASE_COFINS": "R$ {:.2f}".format,
-                "PIS": "R$ {:.2f}".format,
-                "COFINS": "R$ {:.2f}".format,
-            }),
+            format_df_currency(df_cfop_summary),
             use_container_width=True,
             height=350,
         )
@@ -872,13 +928,13 @@ with tab_export:
         if not df_outros.empty:
             df_outros.to_excel(writer, sheet_name="OUTROS_CREDITOS", index=False)
 
-        # Aba 4: Resumo por tipo
+        # Aba 4: Resumo por tipo (incluindo CFOP mapeado)
         if not df_resumo_tipos.empty:
-            df_resumo_tipos.to_excel(writer, sheet_name="RESUMO_TIPOS", index=False)
+            df_resumo_tipos.to_excel(writer, sheet_name="RESUMO_TIPOS_CONSOLIDADO", index=False)
 
-        # Aba 5: Resumo por CFOP
+        # Aba 5: Resumo por CFOP (Original)
         if not df_cfop_summary.empty:
-            df_cfop_summary.to_excel(writer, sheet_name="RESUMO_CFOP", index=False)
+            df_cfop_summary.to_excel(writer, sheet_name="RESUMO_CFOP_ORIGINAL", index=False)
 
         # Aba 6: Apuração PIS
         if not df_ap.empty:
