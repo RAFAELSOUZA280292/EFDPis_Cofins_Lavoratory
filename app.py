@@ -1,14 +1,15 @@
+# app.py
 """
-LavoraTAX Advisor - Dashboard de EFD PIS/COFINS (Streamlit)
+LavoraTAX Advisor - Dashboard de EFD PIS/COFINS
 
-- Upload de múltiplos SPEDs (txt ou .zip)
-- Processamento com cache para melhor performance
-- Visão executiva focada (um resumo por vez para o CEO)
-- Detalhamento técnico e gráficos
+- Upload de múltiplos SPEDs (txt ou zip)
+- Consolidação de créditos de PIS/COFINS
+- Visão executiva para CEO (cards + gráficos de pizza)
+- Detalhamento técnico
+- Resumo de AP PIS (M200) e CREDITO PIS (M105)
 """
 
 import io
-from typing import List
 
 import pandas as pd
 import plotly.express as px
@@ -17,47 +18,202 @@ import streamlit as st
 from parser_pis_cofins import load_efd_from_upload, parse_efd_piscofins
 
 
-# ==========================================================
-# Helpers
-# ==========================================================
+# ==============================
+# Cache de processamento de arquivos
+# ==============================
+# Para melhorar a performance ao subir vários SPEDs, usa-se cache da Streamlit.
+# A função parse_file lê o conteúdo do upload, desempacota (txt/zip)
+# e delega para parse_efd_piscofins. O resultado fica memoizado por nome e
+# conteúdo do arquivo; se subir o mesmo arquivo novamente, o parser não
+# reexecuta o processamento pesado.
+@st.cache_data(show_spinner=False)
+def parse_file(uploaded_file):
+    """
+    Processa um único arquivo de EFD PIS/COFINS e retorna os DataFrames.
+    A função é cacheada para evitar processar repetidamente o mesmo arquivo.
 
-def to_float(value):
-    try:
-        s = str(value).strip()
-        if s == "":
-            return 0.0
+    Parâmetros
+    ----------
+    uploaded_file : UploadedFile
+        Arquivo .txt ou .zip fornecido via st.file_uploader.
+
+    Retorna
+    -------
+    Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, str, str]
+        Mesma saída de parse_efd_piscofins: df_c100, df_outros, df_ap_pis,
+        df_cred_pis, competencia, empresa.
+    """
+    # Ao usar cache_data, o conteúdo do arquivo (uploaded_file.getvalue()) é utilizado
+    # como parte da chave de cache. Dessa forma, arquivos com o mesmo nome mas
+    # conteúdo diferente são processados separadamente. A leitura é feita
+    # dentro da função para garantir reexecução quando o conteúdo mudar.
+    data_bytes = uploaded_file.getvalue()
+    # recria um objeto similar para passar ao loader
+    class _TmpUpload:
+        def __init__(self, name, data):
+            self.name = name
+            self._data = data
+        def read(self):
+            return self._data
+        @property
+        def file_name(self):
+            return self.name
+        @property
+        def name(self):
+            return self._name
+        @name.setter
+        def name(self, val):
+            self._name = val
+
+    tmp = _TmpUpload(uploaded_file.name, data_bytes)
+    lines = load_efd_from_upload(tmp)
+    return parse_efd_piscofins(lines)
+
+
+# ==============================
+# CONFIGURAÇÃO DE PÁGINA / TEMA
+# ==============================
+st.set_page_config(
+    page_title="LavoraTAX Advisor - EFD PIS/COFINS",
+    page_icon="📊",
+    layout="wide",
+)
+
+
+# ==============================
+# CSS customizado
+# ==============================
+st.markdown(
+    """
+    <style>
+    /* ---------- Base Theme ---------- */
+    /* A paleta clara privilegia legibilidade e conforto visual para executivos */
+    .stApp {
+        background-color: #f9fafb;
+        color: #1f2937;
+        font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    /* Ajuste de espaçamento: evita que a barra de topo do Streamlit "coma" o cabeçalho */
+    .block-container {
+        padding-top: 2rem;
+        padding-bottom: 1.5rem;
+    }
+
+    /* Títulos principais e subtítulos */
+    h1, h2, h3 {
+        color: #111827;
+    }
+
+    /* ---------- Cards de Métricas ---------- */
+    .ltx-card {
+        background: #ffffff;
+        border-radius: 12px;
+        padding: 16px 18px;
+        border: 1px solid #e2e8f0;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.06);
+    }
+    .ltx-card-title {
+        font-size: 0.72rem;
+        color: #6b7280;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        margin-bottom: 4px;
+    }
+    .ltx-card-value {
+        font-size: 1.4rem;
+        font-weight: 700;
+        color: #0f172a;
+    }
+    .ltx-card-sub {
+        font-size: 0.8rem;
+        color: #6b7280;
+        margin-top: 2px;
+    }
+
+    /* ---------- Tabelas (Dataframes) ---------- */
+    .dataframe tbody tr:nth-child(even) {
+        background-color: #f9fafb;
+    }
+    .dataframe tbody tr:nth-child(odd) {
+        background-color: #ffffff;
+    }
+    .dataframe th {
+        background-color: #f3f4f6 !important;
+        color: #374151 !important;
+    }
+    .dataframe td {
+        color: #374151 !important;
+    }
+
+    /* ---------- Footer ---------- */
+    .ltx-footer {
+        margin-top: 32px;
+        text-align: center;
+        font-size: 0.75rem;
+        color: #6b7280;
+        padding-bottom: 12px;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
+
+# ==============================
+# Helpers numéricos / formatação
+# ==============================
+
+
+def to_float(s) -> float:
+    if s is None:
+        return 0.0
+    s = str(s).strip()
+    if not s:
+        return 0.0
+    if s.count(",") == 1 and s.count(".") >= 1:
         s = s.replace(".", "").replace(",", ".")
+    else:
+        s = s.replace(",", ".")
+    try:
         return float(s)
     except Exception:
         return 0.0
 
 
-def format_brl(value):
+def format_brl(v: float) -> str:
     try:
-        value = float(value)
-        return f"{value:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+        v = float(v)
     except Exception:
-        return value
+        return "R$ 0,00"
+    s = f"{v:,.2f}"
+    return "R$ " + s.replace(",", "X").replace(".", ",").replace("X", ".")
 
 
-def format_df_brl(df, cols):
-    df2 = df.copy()
-    for c in cols:
-        if c in df2.columns:
-            df2[c] = df2[c].apply(format_brl)
-    return df2
+def format_df_brl(df: pd.DataFrame, numeric_cols) -> pd.DataFrame:
+    if df.empty:
+        return df
+    df_fmt = df.copy()
+    for col in numeric_cols:
+        if col in df_fmt.columns:
+            df_fmt[col] = df_fmt[col].apply(format_brl)
+    return df_fmt
 
 
-def resumo_tipo(df_outros: pd.DataFrame, tipos: List[str], label: str) -> pd.DataFrame:
-    """
-    Monta resumo por COMPETENCIA + EMPRESA para uma lista de TIPO(s) de documento.
-    """
-    if df_outros.empty:
-        return pd.DataFrame()
-
+def resumo_tipo(df_outros: pd.DataFrame, tipos, label: str) -> pd.DataFrame:
     df = df_outros[df_outros["TIPO"].isin(tipos)].copy()
     if df.empty:
-        return pd.DataFrame()
+        return pd.DataFrame(
+            columns=[
+                "COMPETENCIA",
+                "EMPRESA",
+                "GRUPO",
+                "BASE_PIS",
+                "BASE_COFINS",
+                "PIS",
+                "COFINS",
+            ]
+        )
 
     df["VL_BC_PIS_NUM"] = df["VL_BC_PIS"].apply(to_float)
     df["VL_BC_COFINS_NUM"] = df["VL_BC_COFINS"].apply(to_float)
@@ -82,137 +238,18 @@ def resumo_tipo(df_outros: pd.DataFrame, tipos: List[str], label: str) -> pd.Dat
     return grp
 
 
-# ==========================================================
-# CACHE – processamento de arquivos
-# ==========================================================
-
-@st.cache_data(show_spinner=False)
-def process_efd_file(name: str, data_bytes: bytes):
-    """
-    Processa UM arquivo (txt/zip) de EFD utilizando o parser,
-    com cache por (nome + conteúdo).
-    """
-    class FakeUpload:
-        def __init__(self, fname, fdata):
-            self.name = fname
-            self._data = fdata
-        def read(self):
-            return self._data
-
-    fake = FakeUpload(name, data_bytes)
-    lines = load_efd_from_upload(fake)
-    return parse_efd_piscofins(lines)
-
-
-# ==========================================================
-# CONFIG STREAMLIT
-# ==========================================================
-
-st.set_page_config(
-    page_title="LavoraTAX Advisor - EFD PIS/COFINS",
-    page_icon="📊",
-    layout="wide",
-)
-
-st.markdown(
-    """
-    <style>
-    .stApp {
-        background-color: #0f172a;
-        color: #e5e7eb;
-        font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-    }
-    .ltx-title {
-        font-size: 26px;
-        font-weight: 700;
-        color: #f9fafb;
-        margin-bottom: 0.25rem;
-    }
-    .ltx-subtitle {
-        font-size: 14px;
-        color: #9ca3af;
-        margin-bottom: 1.5rem;
-    }
-    .ltx-card {
-        background: #020617;
-        border-radius: 10px;
-        padding: 14px 16px;
-        border: 1px solid #1f2937;
-        box-shadow: 0 10px 12px rgba(15,23,42,0.55);
-        min-height: 98px;
-    }
-    .ltx-card-title {
-        font-size: 12px;
-        color: #9ca3af;
-        margin-bottom: 6px;
-        text-transform: uppercase;
-        letter-spacing: 0.06em;
-    }
-    .ltx-card-value {
-        font-size: 22px;
-        font-weight: 800;
-        color: #f9fafb;
-    }
-    .ltx-card-sub {
-        font-size: 11px;
-        color: #6b7280;
-        margin-top: 4px;
-    }
-    .ltx-section-title {
-        font-size: 18px;
-        font-weight: 600;
-        color: #e5e7eb;
-        margin-top: 1.5rem;
-        margin-bottom: 0.75rem;
-    }
-    .ltx-footer {
-        font-size: 11px;
-        color: #6b7280;
-        margin-top: 1.2rem;
-        text-align: right;
-    }
-    .block-container {
-        padding-top: 1.5rem;
-        padding-bottom: 1.5rem;
-        max-width: 1300px;
-    }
-    .stTabs [data-baseweb="tab-list"] {
-        gap: 12px;
-    }
-    .stTabs [data-baseweb="tab"] {
-        height: 32px;
-        background-color: #020617;
-        border-radius: 999px;
-        padding: 4px 16px;
-        color: #9ca3af;
-        font-size: 13px;
-        border: 1px solid transparent;
-    }
-    .stTabs [data-baseweb="tab"][aria-selected="true"] {
-        background: linear-gradient(90deg, #1d4ed8, #f97316);
-        color: white;
-        border-color: #1d4ed8;
-    }
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
-
-st.markdown(
-    """
-    <div class="ltx-title">LavoraTAX Advisor • EFD PIS/COFINS</div>
-    <div class="ltx-subtitle">
-        Consolidação inteligente de créditos de PIS/COFINS por tipo de documento, com visão executiva e trilha técnica.
-    </div>
-    """,
-    unsafe_allow_html=True,
+# ==============================
+# Cabeçalho
+# ==============================
+st.title("LavoraTAX Advisor – EFD PIS/COFINS")
+st.caption(
+    "Análise executiva e técnica de créditos de PIS/COFINS em EFD Contribuições."
 )
 
 
-# ==========================================================
-# UPLOAD
-# ==========================================================
-
+# ==============================
+# UPLOAD (MULTI-ARQUIVO)
+# ==============================
 col_upload, col_info = st.columns([2, 1.2])
 
 with col_upload:
@@ -223,22 +260,30 @@ with col_upload:
     )
 
 with col_info:
-    st.markdown("#### Como usar")
     st.markdown(
-        "- Pode carregar EFDs de **várias empresas** e **vários meses** de uma vez.\n"
-        "- A análise é cacheada por arquivo, então a navegação depois do upload fica leve.\n"
-        "- Os resumos executivos são exibidos **um por vez**, focando na leitura do CEO."
+        """
+        ##### Como usar
+        1. Faça o upload de 1 ou mais arquivos `.txt` ou `.zip` da EFD PIS/COFINS  
+        2. O sistema consolida **créditos de entradas** (NF-e, serviços, energia, fretes, etc.)  
+        3. Gera:
+           - Visão para CEO (cards + gráficos pizza)  
+           - Detalhamento técnico  
+           - Resumo **AP PIS (M200)** e **CREDITO PIS (M105)**  
+           - Planilha Excel para trabalho em BI / auditoria
+        """
     )
 
+st.write("")
+
+
 if not uploaded_files:
-    st.info("Carregue ao menos um arquivo de EFD PIS/COFINS para iniciar a análise.")
+    st.info("📂 Aguardando upload de arquivos EFD PIS/COFINS...")
     st.stop()
 
 
-# ==========================================================
-# PROCESSAMENTO (com cache)
-# ==========================================================
-
+# ==============================
+# PROCESSAMENTO
+# ==============================
 dfs_c100 = []
 dfs_outros = []
 dfs_ap_pis = []
@@ -250,52 +295,43 @@ status = st.empty()
 for i, f in enumerate(uploaded_files, start=1):
     status.text(f"Processando arquivo {i}/{len(uploaded_files)}: {f.name}")
     try:
-        data_bytes = f.read()
-        (
-            df_c100_file,
-            df_outros_file,
-            df_ap_pis_file,
-            df_cred_pis_file,
-            comp,
-            emp,
-        ) = process_efd_file(f.name, data_bytes)
-
-        if not df_c100_file.empty:
-            df_c100_file["COMPETENCIA"] = comp
-            df_c100_file["EMPRESA"] = emp
-            dfs_c100.append(df_c100_file)
-
-        if not df_outros_file.empty:
-            df_outros_file["COMPETENCIA"] = comp
-            df_outros_file["EMPRESA"] = emp
-            dfs_outros.append(df_outros_file)
-
-        if not df_ap_pis_file.empty:
-            dfs_ap_pis.append(df_ap_pis_file)
-
-        if not df_cred_pis_file.empty:
-            dfs_cred_pis.append(df_cred_pis_file)
-
+        # utiliza cache para processar o arquivo apenas uma vez
+        df_c100, df_outros, df_ap_pis, df_cred_pis, competencia, empresa = parse_file(f)
     except Exception as e:
         st.error(f"Erro ao processar {f.name}: {e}")
+        continue
+
+    if not df_c100.empty:
+        dfs_c100.append(df_c100)
+    if not df_outros.empty:
+        dfs_outros.append(df_outros)
+    if not df_ap_pis.empty:
+        dfs_ap_pis.append(df_ap_pis)
+    if not df_cred_pis.empty:
+        dfs_cred_pis.append(df_cred_pis)
 
     progress.progress(i / len(uploaded_files))
 
+progress.progress(1.0)
 status.empty()
-progress.empty()
+
+if not dfs_c100 and not dfs_outros:
+    st.error("Nenhum crédito de PIS/COFINS identificado nos arquivos enviados.")
+    st.stop()
 
 df_c100 = pd.concat(dfs_c100, ignore_index=True) if dfs_c100 else pd.DataFrame()
 df_outros = pd.concat(dfs_outros, ignore_index=True) if dfs_outros else pd.DataFrame()
-df_ap_pis = pd.concat(dfs_ap_pis, ignore_index=True) if dfs_ap_pis else pd.DataFrame()
+df_ap_pis = (
+    pd.concat(dfs_ap_pis, ignore_index=True) if dfs_ap_pis else pd.DataFrame()
+)
 df_cred_pis = (
     pd.concat(dfs_cred_pis, ignore_index=True) if dfs_cred_pis else pd.DataFrame()
 )
 
 
-# ==========================================================
-# NORMALIZAÇÃO NUMÉRICA
-# ==========================================================
-
+# ==============================
+# Normalização numérica
+# ==============================
 if not df_c100.empty:
     df_c100["VL_BC_PIS_NUM"] = df_c100["VL_BC_PIS"].apply(to_float)
     df_c100["VL_BC_COFINS_NUM"] = df_c100["VL_BC_COFINS"].apply(to_float)
@@ -308,6 +344,7 @@ if not df_outros.empty:
     df_outros["VL_PIS_NUM"] = df_outros["VL_PIS"].apply(to_float)
     df_outros["VL_COFINS_NUM"] = df_outros["VL_COFINS"].apply(to_float)
 
+
 total_pis_credit = 0.0
 total_cofins_credit = 0.0
 if not df_c100.empty:
@@ -317,15 +354,17 @@ if not df_outros.empty:
     total_pis_credit += df_outros["VL_PIS_NUM"].sum()
     total_cofins_credit += df_outros["VL_COFINS_NUM"].sum()
 
-total_ap_pis = 0.0
-if not df_ap_pis.empty and "VL_TOT_CONT_REAL" in df_ap_pis.columns:
-    total_ap_pis = df_ap_pis["VL_TOT_CONT_REAL"].sum()
+# AP PIS / CRÉDITOS PIS (Bloco M)
+M200_TOTAL_COL = "Valor Total da Contribuição a Recolher/Pagar no Período"
+total_ap_pis = (
+    df_ap_pis[M200_TOTAL_COL].sum() if M200_TOTAL_COL in df_ap_pis.columns else 0.0
+)
+total_cred_pis = df_cred_pis["VL_CRED"].sum() if "VL_CRED" in df_cred_pis.columns else 0.0
 
-total_cred_pis_bloco_m = 0.0
-if not df_cred_pis.empty and "VL_CRED" in df_cred_pis.columns:
-    total_cred_pis_bloco_m = df_cred_pis["VL_CRED"].apply(to_float).sum()
 
+# ==============================
 # Resumos por tipo
+# ==============================
 df_servicos = resumo_tipo(df_outros, ["A100/A170"], "Serviços tomados (A100/A170)")
 df_energia = resumo_tipo(
     df_outros,
@@ -341,9 +380,8 @@ df_out_fat = resumo_tipo(df_outros, ["F100/F120"], "Outras faturas (F100/F120)")
 
 df_resumo_tipos = pd.concat(
     [df_servicos, df_energia, df_fretes, df_out_fat], ignore_index=True
-) if any(
-    not x.empty for x in [df_servicos, df_energia, df_fretes, df_out_fat]
-) else pd.DataFrame()
+)
+
 
 # Resumo CFOP (NF-e de entrada)
 if not df_c100.empty:
@@ -367,17 +405,14 @@ else:
     )
 
 
-# ==========================================================
-# ABAS
-# ==========================================================
-
+# ==============================
+# LAYOUT EM ABAS (Clean / CEO friendly)
+# ==============================
 tab_exec, tab_det, tab_grafs = st.tabs(
     ["Visão Executiva (CEO)", "Detalhamento Técnico", "Gráficos & Relatórios"]
 )
 
-# ----------------------------------------------------------
-# Visão Executiva
-# ----------------------------------------------------------
+# --------- Visão Executiva (CEO) ----------
 with tab_exec:
     col1, col2, col3, col4 = st.columns(4)
 
@@ -399,7 +434,7 @@ with tab_exec:
             <div class="ltx-card">
                 <div class="ltx-card-title">Créditos de COFINS identificados</div>
                 <div class="ltx-card-value">{format_brl(total_cofins_credit)}</div>
-                <div class="ltx-card-sub">Mesma base dos créditos de PIS (documentos irmãos)</div>
+                <div class="ltx-card-sub">Mesma base de documentos de entrada</div>
             </div>
             """,
             unsafe_allow_html=True,
@@ -411,7 +446,7 @@ with tab_exec:
             <div class="ltx-card">
                 <div class="ltx-card-title">PIS apurado (Bloco M200)</div>
                 <div class="ltx-card-value">{format_brl(total_ap_pis)}</div>
-                <div class="ltx-card-sub">Somatório de VL_TOT_CONT_REAL</div>
+                <div class="ltx-card-sub">Valor total da contribuição a recolher/pagar</div>
             </div>
             """,
             unsafe_allow_html=True,
@@ -421,8 +456,8 @@ with tab_exec:
         st.markdown(
             f"""
             <div class="ltx-card">
-                <div class="ltx-card-title">Créditos de PIS declarados (Bloco M105)</div>
-                <div class="ltx-card-value">{format_brl(total_cred_pis_bloco_m)}</div>
+                <div class="ltx-card-title">Créditos de PIS (Bloco M105)</div>
+                <div class="ltx-card-value">{format_brl(total_cred_pis)}</div>
                 <div class="ltx-card-sub">Somatório de VL_CRED (M105)</div>
             </div>
             """,
@@ -431,130 +466,209 @@ with tab_exec:
 
     st.markdown("---")
 
-    st.markdown(
-        '<div class="ltx-section-title">Resumo executivo por empresa / competência</div>',
-        unsafe_allow_html=True,
-    )
+    col_l, col_r = st.columns(2)
 
-    if df_resumo_tipos.empty:
-        st.info("Nenhum crédito consolidado por tipo de documento foi identificado.")
-    else:
-        combos = (
-            df_resumo_tipos[["COMPETENCIA", "EMPRESA"]]
-            .drop_duplicates()
-            .sort_values(["COMPETENCIA", "EMPRESA"])
-        )
-
-        combo_labels = [
-            f"{row['COMPETENCIA']} - {row['EMPRESA']}"
-            for _, row in combos.iterrows()
-        ]
-        selected_label = st.selectbox(
-            "Selecione a competência e empresa para visualizar o resumo:",
-            combo_labels,
-        )
-
-        sel_comp, sel_emp = selected_label.split(" - ", 1)
-        df_sel = df_resumo_tipos[
-            (df_resumo_tipos["COMPETENCIA"] == sel_comp)
-            & (df_resumo_tipos["EMPRESA"] == sel_emp)
-        ].copy()
-
-        grupos_disp = list(df_sel["GRUPO"].unique())
-        grupo_escolhido = st.radio(
-            "Escolha o tipo de documento para ver o resumo (um por vez):",
-            grupos_disp,
-            horizontal=True,
-        )
-
-        df_grupo = df_sel[df_sel["GRUPO"] == grupo_escolhido].copy()
-
-        if df_grupo.empty:
-            st.info("Sem dados para esse tipo de documento.")
+    with col_l:
+        st.subheader("Resumo por tipo de documento")
+        if df_resumo_tipos.empty:
+            st.info("Nenhum crédito por tipo de documento foi identificado.")
         else:
-            df_grupo["TOTAL_PIS_COFINS"] = df_grupo["PIS"] + df_grupo["COFINS"]
-            df_grupo_fmt = format_df_brl(
-                df_grupo,
-                ["BASE_PIS", "BASE_COFINS", "PIS", "COFINS", "TOTAL_PIS_COFINS"],
-            )
-            st.dataframe(df_grupo_fmt, use_container_width=True, height=220)
-
-# ----------------------------------------------------------
-# Detalhamento Técnico
-# ----------------------------------------------------------
-with tab_det:
-    st.subheader("NF-e de entrada (C100/C170) – Detalhamento por item")
-    if df_c100.empty:
-        st.info("Nenhum registro C100/C170 de entrada foi identificado.")
-    else:
-        st.dataframe(df_c100, use_container_width=True, height=360)
-
-    st.subheader("Demais documentos de crédito (A100/A170, C500, D100, F100/F120)")
-    if df_outros.empty:
-        st.info("Nenhum documento adicional de crédito foi identificado.")
-    else:
-        st.dataframe(df_outros, use_container_width=True, height=360)
-
-    st.subheader("Resumo por CFOP (NF-e de entrada)")
-    if df_cfop_summary.empty:
-        st.info("Sem NF-e de entrada para resumo por CFOP.")
-    else:
-        df_cfop_fmt = format_df_brl(
-            df_cfop_summary, ["BASE_PIS", "BASE_COFINS", "PIS", "COFINS"]
-        )
-        st.dataframe(df_cfop_fmt, use_container_width=True, height=360)
-
-# ----------------------------------------------------------
-# Gráficos & Relatórios
-# ----------------------------------------------------------
-with tab_grafs:
-    st.subheader("Gráficos de composição dos créditos")
-
-    if df_resumo_tipos.empty:
-        st.info("Sem créditos consolidados por tipo de documento para gerar gráficos.")
-    else:
-        df_plot = df_resumo_tipos.groupby("GRUPO", as_index=False)[
-            ["PIS", "COFINS"]
-        ].sum()
-
-        col_pis, col_cof = st.columns(2)
-        with col_pis:
-            fig_pis = px.pie(
-                df_plot,
-                values="PIS",
-                names="GRUPO",
-                hole=0.5,
-                title="Composição dos créditos de PIS por tipo de documento",
-            )
-            st.plotly_chart(fig_pis, use_container_width=True)
-
-        with col_cof:
-            fig_cof = px.pie(
-                df_plot,
-                values="COFINS",
-                names="GRUPO",
-                hole=0.5,
-                title="Composição dos créditos de COFINS por tipo de documento",
-            )
-            st.plotly_chart(fig_cof, use_container_width=True)
-
-    st.markdown("---")
-    st.subheader("Exportar relatório consolidado (Excel)")
-
-    buffer = io.BytesIO()
-    with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
-        df_c100.to_excel(writer, sheet_name="C100_C170", index=False)
-        df_outros.to_excel(writer, sheet_name="OUTROS_CREDITOS", index=False)
-        df_ap_pis.to_excel(writer, sheet_name="AP_PIS_M200", index=False)
-        df_cred_pis.to_excel(writer, sheet_name="CREDITOS_PIS_M105", index=False)
-        if not df_resumo_tipos.empty:
             df_res_exec = df_resumo_tipos.copy()
             df_res_exec["TOTAL_PIS_COFINS"] = (
                 df_res_exec["PIS"] + df_res_exec["COFINS"]
             )
-            df_res_exec.to_excel(writer, sheet_name="RESUMO_TIPOS", index=False)
+            df_res_exec = df_res_exec.sort_values(
+                ["COMPETENCIA", "EMPRESA", "TOTAL_PIS_COFINS"], ascending=[True, True, False]
+            )
+            df_res_exec_fmt = format_df_brl(
+                df_res_exec,
+                ["BASE_PIS", "BASE_COFINS", "PIS", "COFINS", "TOTAL_PIS_COFINS"],
+            )
+            st.dataframe(df_res_exec_fmt, use_container_width=True, height=360)
+
+    with col_r:
+        st.subheader("Resumo AP PIS x Créditos PIS")
+        if df_ap_pis.empty and df_cred_pis.empty:
+            st.info("Nenhuma informação de Bloco M200/M105 encontrada nos arquivos.")
+        else:
+            if not df_ap_pis.empty:
+                if M200_TOTAL_COL in df_ap_pis.columns:
+                    df_ap_res = (
+                        df_ap_pis.groupby(["COMPETENCIA", "EMPRESA"], as_index=False)[
+                            M200_TOTAL_COL
+                        ]
+                        .sum()
+                        .rename(columns={M200_TOTAL_COL: "PIS_A_RECOLHER"})
+                    )
+                    df_ap_res_fmt = format_df_brl(df_ap_res, ["PIS_A_RECOLHER"])
+                    st.markdown("**Apuração PIS (M200)**")
+                    st.dataframe(df_ap_res_fmt, use_container_width=True, height=180)
+            if not df_cred_pis.empty:
+                df_cred_res = (
+                    df_cred_pis.groupby("NAT_BC_CRED", as_index=False)["VL_CRED"]
+                    .sum()
+                    .sort_values("VL_CRED", ascending=False)
+                )
+                df_cred_res_fmt = format_df_brl(df_cred_res, ["VL_CRED"])
+                st.markdown("**Créditos PIS por natureza da base (M105)**")
+                st.dataframe(df_cred_res_fmt, use_container_width=True, height=180)
+
+
+# --------- Detalhamento Técnico ----------
+with tab_det:
+    st.subheader("Detalhamento dos créditos de entrada")
+
+    if not df_c100.empty:
+        with st.expander("NF-e de entrada (C100/C170) – visão linha a linha", expanded=False):
+            cols_fmt = ["VL_DOC", "VL_BC_PIS", "VL_PIS", "VL_BC_COFINS", "VL_COFINS"]
+            df_c100_view = df_c100.copy()
+            df_c100_view_fmt = format_df_brl(df_c100_view, cols_fmt)
+            st.dataframe(df_c100_view_fmt, use_container_width=True, height=420)
+    else:
+        st.info("Nenhuma NF-e de entrada com crédito foi encontrada (C100/C170).")
+
+    with st.expander("Serviços, energia, fretes e demais documentos", expanded=False):
+        col1, col2 = st.columns(2)
+
+        with col1:
+            st.markdown("**Serviços tomados (A100/A170)**")
+            if df_servicos.empty:
+                st.write("—")
+            else:
+                st.dataframe(
+                    format_df_brl(df_servicos, ["BASE_PIS", "BASE_COFINS", "PIS", "COFINS"]),
+                    use_container_width=True,
+                    height=200,
+                )
+
+            st.markdown("**Fretes / transporte (D100/D101/D105)**")
+            if df_fretes.empty:
+                st.write("—")
+            else:
+                st.dataframe(
+                    format_df_brl(df_fretes, ["BASE_PIS", "BASE_COFINS", "PIS", "COFINS"]),
+                    use_container_width=True,
+                    height=200,
+                )
+
+        with col2:
+            st.markdown("**Energia elétrica (C500/C501/C505)**")
+            if df_energia.empty:
+                st.write("—")
+            else:
+                st.dataframe(
+                    format_df_brl(df_energia, ["BASE_PIS", "BASE_COFINS", "PIS", "COFINS"]),
+                    use_container_width=True,
+                    height=200,
+                )
+
+            st.markdown("**Outras faturas / documentos (F100/F120)**")
+            if df_out_fat.empty:
+                st.write("—")
+            else:
+                st.dataframe(
+                    format_df_brl(df_out_fat, ["BASE_PIS", "BASE_COFINS", "PIS", "COFINS"]),
+                    use_container_width=True,
+                    height=200,
+                )
+
+    with st.expander("Resumo por CFOP (NF-e de entrada)", expanded=False):
+        if df_cfop_summary.empty:
+            st.info("Não foi possível montar o resumo por CFOP.")
+        else:
+            df_cfop_fmt = format_df_brl(
+                df_cfop_summary, ["BASE_PIS", "BASE_COFINS", "PIS", "COFINS"]
+            )
+            st.dataframe(df_cfop_fmt, use_container_width=True, height=360)
+
+
+# --------- Gráficos & Relatórios ----------
+with tab_grafs:
+    st.subheader("Gráficos de composição dos créditos")
+
+    col_g1, col_g2 = st.columns(2)
+
+    if not df_resumo_tipos.empty:
+        df_pie_tipo = (
+            df_resumo_tipos.groupby("GRUPO", as_index=False)[["PIS", "COFINS"]]
+            .sum()
+        )
+
+        with col_g1:
+            fig_pis = px.pie(
+                df_pie_tipo,
+                names="GRUPO",
+                values="PIS",
+                title="Composição dos créditos de PIS por tipo de documento",
+                hole=0.35,
+            )
+            st.plotly_chart(fig_pis, use_container_width=True)
+
+        with col_g2:
+            fig_cof = px.pie(
+                df_pie_tipo,
+                names="GRUPO",
+                values="COFINS",
+                title="Composição dos créditos de COFINS por tipo de documento",
+                hole=0.35,
+            )
+            st.plotly_chart(fig_cof, use_container_width=True)
+    else:
+        st.info("Sem dados consolidados por tipo de documento para gerar os gráficos.")
+
+    st.markdown("---")
+    st.subheader("Gráfico de PIS Apurado x Créditos PIS")
+
+    if total_ap_pis == 0 and total_cred_pis == 0 and total_pis_credit == 0:
+        st.info("Sem dados suficientes de apuração (M200/M105) para o gráfico comparativo.")
+    else:
+        df_pis_bal = pd.DataFrame(
+            [
+                {"Categoria": "PIS apurado (M200)", "Valor": total_ap_pis},
+                {"Categoria": "Créditos PIS (M105)", "Valor": total_cred_pis},
+                {
+                    "Categoria": "Créditos PIS identificados nas entradas",
+                    "Valor": total_pis_credit,
+                },
+            ]
+        )
+        # filtra zeros
+        df_pis_bal = df_pis_bal[df_pis_bal["Valor"] > 0]
+        if not df_pis_bal.empty:
+            fig_bal = px.pie(
+                df_pis_bal,
+                names="Categoria",
+                values="Valor",
+                title="Relação entre PIS apurado, créditos declarados (M105) e créditos identificados",
+                hole=0.3,
+            )
+            st.plotly_chart(fig_bal, use_container_width=True)
+
+    st.markdown("---")
+    st.subheader("Download de planilha Excel (todas as visões)")
+
+    buffer = io.BytesIO()
+    with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
+        if not df_c100.empty:
+            df_c100.to_excel(writer, sheet_name="C100_C170", index=False)
+        if not df_outros.empty:
+            df_outros.to_excel(writer, sheet_name="OUTROS_DOCUMENTOS", index=False)
         if not df_cfop_summary.empty:
             df_cfop_summary.to_excel(writer, sheet_name="RESUMO_CFOP", index=False)
+        if not df_servicos.empty:
+            df_servicos.to_excel(writer, sheet_name="RESUMO_SERVICOS", index=False)
+        if not df_energia.empty:
+            df_energia.to_excel(writer, sheet_name="RESUMO_ENERGIA", index=False)
+        if not df_fretes.empty:
+            df_fretes.to_excel(writer, sheet_name="RESUMO_FRETES", index=False)
+        if not df_out_fat.empty:
+            df_out_fat.to_excel(
+                writer, sheet_name="RESUMO_OUTRAS_FATURAS", index=False
+            )
+        if not df_ap_pis.empty:
+            df_ap_pis.to_excel(writer, sheet_name="AP_PIS_M200", index=False)
+        if not df_cred_pis.empty:
+            df_cred_pis.to_excel(writer, sheet_name="CREDITO_PIS_M105", index=False)
 
     buffer.seek(0)
 
