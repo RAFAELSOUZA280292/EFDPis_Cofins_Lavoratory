@@ -1,18 +1,14 @@
 """
-LaboraTAX Advisor – EFD PIS/COFINS (Versão 3.1 - Premium Executiva Otimizada)
+LaboraTAX Advisor – EFD PIS/COFINS (Versão 3.2 - Premium Executiva Otimizada)
 ================================================================================
 
 Painel executivo premium para análise consolidada de créditos de PIS/COFINS.
 Otimizado para CEO, CFO, Diretores Tributários e Financeiros.
 
-Principais melhorias v3.1:
-* UX de carregamento otimizada sem travamentos
-* Botão X para remover arquivos
-* Ranking NCM com tooltip interativo (top 5 produtos)
-* Ranking top 10 de produtos com mais créditos
-* Gráfico unificado de distribuição PIS/COFINS
-* Chave de acesso da NF-e adicionada
-* Tratamento melhorado de documentos com bases zeradas
+Principais melhorias v3.2:
+* **FIX:** Extração correta de dados de A100, C500, D100 e F100 no parser.
+* **FIX:** Exibição da Chave de Acesso (CHV_NFE) na tabela C100/C170.
+* **FIX:** Exibição correta de bases e valores nos Demais Documentos de Crédito.
 """
 
 import io
@@ -24,6 +20,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
 
+# Importa o parser corrigido
 from parser_pis_cofins import parse_efd_piscofins
 
 
@@ -293,9 +290,12 @@ def format_df_currency(df: pd.DataFrame) -> pd.DataFrame:
     for col in cols_to_format:
         if col in df_formatted.columns:
             try:
+                # Tenta converter para numérico, forçando erros para NaN
                 df_formatted[col] = pd.to_numeric(df_formatted[col], errors='coerce').fillna(0.0)
+                # Aplica a formatação de moeda
                 df_formatted[col] = df_formatted[col].apply(lambda x: format_currency(float(x)))
             except Exception:
+                # Ignora colunas que não são numéricas
                 pass
     
     return df_formatted
@@ -378,6 +378,11 @@ def resumo_cfop_mapeado(df_c100: pd.DataFrame) -> pd.DataFrame:
     df = df_c100.copy()
     df["CFOP_GRUPO"] = df["CFOP"].astype(str).map(CFOP_MAP).fillna("Outras NF-e de Entrada")
 
+    # Filtra apenas documentos com crédito real (PIS ou COFINS > 0)
+    df = df[(df["VL_PIS_NUM"] > 0) | (df["VL_COFINS_NUM"] > 0)]
+    if df.empty:
+        return pd.DataFrame(columns=cols)
+
     grouped = (
         df.groupby(["COMPETENCIA", "EMPRESA", "CFOP_GRUPO"], as_index=False)[
             ["VL_BC_PIS_NUM", "VL_BC_COFINS_NUM", "VL_PIS_NUM", "VL_COFINS_NUM"]
@@ -399,36 +404,8 @@ def resumo_cfop_mapeado(df_c100: pd.DataFrame) -> pd.DataFrame:
 @st.cache_data(show_spinner=False)
 def parse_file(uploaded_file) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, str, str]:
     """Processa arquivo EFD com cache."""
-    name = uploaded_file.name.lower()
-    data = uploaded_file.getvalue()
-    lines: List[str] = []
-
-    if name.endswith(".zip"):
-        try:
-            with zipfile.ZipFile(io.BytesIO(data)) as zf:
-                for fname in zf.namelist():
-                    if fname.lower().endswith(".txt"):
-                        raw = zf.read(fname)
-                        try:
-                            decoded = raw.decode("utf-8")
-                        except Exception:
-                            decoded = raw.decode("latin-1")
-                        lines.extend(decoded.splitlines())
-        except Exception:
-            try:
-                decoded = data.decode("utf-8")
-            except Exception:
-                decoded = data.decode("latin-1")
-            lines.extend(decoded.splitlines())
-    elif name.endswith(".txt"):
-        try:
-            decoded = data.decode("utf-8")
-        except Exception:
-            decoded = data.decode("latin-1")
-        lines.extend(decoded.splitlines())
-    else:
-        raise ValueError("Formato inválido. Apenas .txt ou .zip são suportados.")
-
+    # Otimizado para usar a função load_efd_from_upload do parser
+    lines = load_efd_from_upload(uploaded_file)
     return parse_efd_piscofins(lines)
 
 
@@ -436,8 +413,8 @@ def parse_file(uploaded_file) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame,
 # INICIALIZAR SESSION STATE
 # =============================================================================
 
-if "uploaded_files_list" not in st.session_state:
-    st.session_state.uploaded_files_list = []
+if "files_data" not in st.session_state:
+    st.session_state.files_data = []
 
 # =============================================================================
 # CABEÇALHO E UPLOAD
@@ -458,11 +435,6 @@ st.markdown("### 📁 Carregue seus arquivos SPED")
 col_upload, col_info = st.columns([2, 1])
 
 with col_upload:
-    # O Streamlit não permite remover arquivos do file_uploader, a solução é usar um
-    # hack com session_state, mas para manter a simplicidade e a funcionalidade,
-    # vamos usar o file_uploader padrão e o usuário deve recarregar se quiser mudar.
-    # O problema de travamento foi resolvido removendo a lógica de card de progresso
-    # que estava no loop de processamento.
     uploaded_files = st.file_uploader(
         "Selecione 1 a 12 arquivos EFD PIS/COFINS (.txt ou .zip)",
         type=["txt", "zip"],
@@ -480,7 +452,7 @@ with col_info:
         """
     )
 
-if not uploaded_files:
+if not uploaded_files and not st.session_state.files_data:
     st.warning("👉 Envie ao menos um arquivo para iniciar a análise.")
     st.stop()
 
@@ -489,155 +461,153 @@ if len(uploaded_files) > 12:
     st.stop()
 
 # =============================================================================
-# PROCESSAMENTO DOS ARQUIVOS (OTIMIZADO)
+# PROCESSAMENTO DOS ARQUIVOS (OTIMIZADO COM SESSION STATE)
 # =============================================================================
 
+# Limpa o estado se novos arquivos foram carregados
+if uploaded_files:
+    # Verifica se a lista de arquivos mudou
+    current_file_names = [f.name for f in uploaded_files]
+    session_file_names = [d['name'] for d in st.session_state.files_data]
+    
+    # Verifica se a lista de arquivos mudou ou se o número de arquivos é diferente
+    if set(current_file_names) != set(session_file_names) or len(current_file_names) != len(session_file_names):
+        st.session_state.files_data = []
+        
+        # Processar arquivos
+        progress_bar = st.progress(0)
+        status_text = st.empty()
+
+        for idx, f in enumerate(uploaded_files):
+            try:
+                status_text.text(f"⏳ Processando: {f.name}")
+                
+                # Para evitar problemas de serialização, lemos o conteúdo e passamos para o parser
+                # O parser corrigido já lida com o encoding
+                df_c100_file, df_outros_file, df_ap_file, df_cred_file, comp, emp = parse_file(f)
+
+                st.session_state.files_data.append({
+                    "name": f.name,
+                    "df_c100": df_c100_file,
+                    "df_outros": df_outros_file,
+                    "df_ap": df_ap_file,
+                    "df_cred": df_cred_file,
+                    "competencia": comp,
+                    "empresa": emp
+                })
+
+            except Exception as e:
+                st.error(f"❌ Erro ao processar {f.name}: {str(e)}")
+
+            progress_bar.progress((idx + 1) / len(uploaded_files))
+
+        status_text.empty()
+        progress_bar.empty()
+
+# =============================================================================
+# EXIBIÇÃO E FILTROS
+# =============================================================================
+
+if not st.session_state.files_data:
+    st.stop()
+
+# Extracao de competencias e empresas
+competencias_disponiveis = sorted(list(set(d['competencia'] for d in st.session_state.files_data)))
+empresas_disponiveis = sorted(list(set(d['empresa'] for d in st.session_state.files_data)))
+
+# Exibir informações dos arquivos carregados
+st.markdown("<div class='divider'></div>", unsafe_allow_html=True)
+st.markdown("### 📋 Arquivos Carregados", unsafe_allow_html=True)
+
+# Exibir em formato compacto
+col1, col2, col3 = st.columns([1, 1, 2])
+
+with col1:
+    st.metric("📊 Competências", len(competencias_disponiveis))
+
+with col2:
+    st.metric("🏢 Empresas", len(empresas_disponiveis))
+
+with col3:
+    st.metric("📄 Arquivos", len(st.session_state.files_data))
+
+# Exibir lista de arquivos em formato compacto com botão de remoção
+with st.expander("📂 Ver detalhes e remover arquivos", expanded=False):
+    
+    # Cria uma cópia da lista para iteração e remoção
+    files_to_remove = []
+    
+    for idx, data in enumerate(st.session_state.files_data):
+        col_name, col_comp, col_emp, col_remove = st.columns([3, 1, 2, 0.5])
+        
+        col_name.text(data['name'])
+        col_comp.text(data['competencia'])
+        col_emp.text(data['empresa'])
+        
+        if col_remove.button("❌", key=f"remove_{idx}"):
+            files_to_remove.append(idx)
+
+    # Remove os arquivos marcados
+    if files_to_remove:
+        # Remove em ordem decrescente para não bagunçar os índices
+        for idx in sorted(files_to_remove, reverse=True):
+            st.session_state.files_data.pop(idx)
+        st.rerun()
+
+st.markdown("<div class='divider'></div>", unsafe_allow_html=True)
+
+# Filtros de Competencia e Empresa APRIMORADOS
+st.markdown("### 🔍 Filtros de Análise Avançados", unsafe_allow_html=True)
+
+col_filter_comp, col_filter_emp = st.columns(2)
+
+with col_filter_comp:
+    comp_options = ["📊 Todas as Competências"] + competencias_disponiveis
+    competencia_selecionada = st.selectbox(
+        "Selecione a Competência:",
+        comp_options,
+        key="filter_competencia"
+    )
+    if competencia_selecionada == "📊 Todas as Competências":
+        competencia_selecionada = None
+
+with col_filter_emp:
+    emp_options = ["🏢 Todas as Empresas"] + empresas_disponiveis
+    empresa_selecionada = st.selectbox(
+        "Selecione a Empresa:",
+        emp_options,
+        key="filter_empresa"
+    )
+    if empresa_selecionada == "🏢 Todas as Empresas":
+        empresa_selecionada = None
+
+st.markdown("<div class='divider'></div>", unsafe_allow_html=True)
+
+# Combina e Filtra DataFrames
 dfs_c100: List[pd.DataFrame] = []
 dfs_outros: List[pd.DataFrame] = []
 dfs_ap: List[pd.DataFrame] = []
 dfs_cred: List[pd.DataFrame] = []
-files_info = []
 
-# Processar arquivos
-progress_bar = st.progress(0)
-status_text = st.empty()
-
-for idx, f in enumerate(uploaded_files):
-    try:
-        status_text.text(f"⏳ Processando: {f.name}")
-        
-        df_c100_file, df_outros_file, df_ap_file, df_cred_file, comp, emp = parse_file(f)
-
-        if not df_c100_file.empty:
-            df_c100_file["COMPETENCIA"] = comp
-            df_c100_file["EMPRESA"] = emp
-            dfs_c100.append(df_c100_file)
-
-        if not df_outros_file.empty:
-            df_outros_file["COMPETENCIA"] = comp
-            df_outros_file["EMPRESA"] = emp
-            dfs_outros.append(df_outros_file)
-
-        if not df_ap_file.empty:
-            dfs_ap.append(df_ap_file)
-
-        if not df_cred_file.empty:
-            dfs_cred.append(df_cred_file)
-
-        files_info.append({"arquivo": f.name, "competencia": comp, "empresa": emp})
-
-    except Exception as e:
-        st.error(f"❌ Erro ao processar {f.name}: {str(e)}")
-
-    progress_bar.progress((idx + 1) / len(uploaded_files))
-
-status_text.empty()
-progress_bar.empty()
-
-# Extracao de competencias e empresas
-competencias_disponiveis = []
-empresas_disponiveis = []
-
-for info in files_info:
-    if info["competencia"] not in competencias_disponiveis:
-        competencias_disponiveis.append(info["competencia"])
-    if info["empresa"] not in empresas_disponiveis:
-        empresas_disponiveis.append(info["empresa"])
-
-competencias_disponiveis.sort()
-empresas_disponiveis.sort()
-
-# Exibir informacoes dos arquivos carregados
-if files_info:
-    st.markdown("<div class='divider'></div>", unsafe_allow_html=True)
-    st.markdown("### 📋 Arquivos Carregados", unsafe_allow_html=True)
+for data in st.session_state.files_data:
     
-    # Exibir em formato compacto
-    col1, col2, col3 = st.columns([1, 1, 2])
+    # Aplica filtro
+    comp_match = (competencia_selecionada is None) or (data['competencia'] == competencia_selecionada)
+    emp_match = (empresa_selecionada is None) or (data['empresa'] == empresa_selecionada)
     
-    with col1:
-        st.metric("📊 Competências", len(competencias_disponiveis))
-    
-    with col2:
-        st.metric("🏢 Empresas", len(empresas_disponiveis))
-    
-    with col3:
-        st.metric("📄 Arquivos", len(files_info))
-    
-    # Exibir lista de arquivos em formato compacto
-    with st.expander("📂 Ver detalhes dos arquivos", expanded=False):
-        df_files_display = pd.DataFrame(files_info)
-        st.dataframe(df_files_display, use_container_width=True, height=200)
-    
-    st.markdown("<div class='divider'></div>", unsafe_allow_html=True)
-    
-    # Filtros de Competencia e Empresa APRIMORADOS
-    st.markdown("### 🔍 Filtros de Análise Avançados", unsafe_allow_html=True)
-    
-    col_filter_comp, col_filter_emp = st.columns(2)
-    
-    with col_filter_comp:
-        comp_options = ["📊 Todas as Competências"] + competencias_disponiveis
-        competencia_selecionada = st.selectbox(
-            "Selecione a Competência:",
-            comp_options,
-            key="filter_competencia"
-        )
-        if competencia_selecionada == "📊 Todas as Competências":
-            competencia_selecionada = None
-    
-    with col_filter_emp:
-        emp_options = ["🏢 Todas as Empresas"] + empresas_disponiveis
-        empresa_selecionada = st.selectbox(
-            "Selecione a Empresa:",
-            emp_options,
-            key="filter_empresa"
-        )
-        if empresa_selecionada == "🏢 Todas as Empresas":
-            empresa_selecionada = None
-    
-    st.markdown("<div class='divider'></div>", unsafe_allow_html=True)
-else:
-    competencia_selecionada = None
-    empresa_selecionada = None
+    if comp_match and emp_match:
+        dfs_c100.append(data['df_c100'])
+        dfs_outros.append(data['df_outros'])
+        dfs_ap.append(data['df_ap'])
+        dfs_cred.append(data['df_cred'])
 
-# Combina DataFrames
 df_c100 = pd.concat(dfs_c100, ignore_index=True) if dfs_c100 else pd.DataFrame()
 df_outros = pd.concat(dfs_outros, ignore_index=True) if dfs_outros else pd.DataFrame()
 df_ap = pd.concat(dfs_ap, ignore_index=True) if dfs_ap else pd.DataFrame()
 df_cred = pd.concat(dfs_cred, ignore_index=True) if dfs_cred else pd.DataFrame()
 
-# Filtra pelos seletores se disponíveis
-if competencia_selecionada and empresa_selecionada:
-    if not df_c100.empty:
-        df_c100 = df_c100[(df_c100["COMPETENCIA"] == competencia_selecionada) & (df_c100["EMPRESA"] == empresa_selecionada)]
-    if not df_outros.empty:
-        df_outros = df_outros[(df_outros["COMPETENCIA"] == competencia_selecionada) & (df_outros["EMPRESA"] == empresa_selecionada)]
-    if not df_ap.empty:
-        df_ap = df_ap[(df_ap["COMPETENCIA"] == competencia_selecionada) & (df_ap["EMPRESA"] == empresa_selecionada)]
-    if not df_cred.empty:
-        df_cred = df_cred[(df_cred["COMPETENCIA"] == competencia_selecionada) & (df_cred["EMPRESA"] == empresa_selecionada)]
-elif competencia_selecionada:
-    if not df_c100.empty:
-        df_c100 = df_c100[df_c100["COMPETENCIA"] == competencia_selecionada]
-    if not df_outros.empty:
-        df_outros = df_outros[df_outros["COMPETENCIA"] == competencia_selecionada]
-    if not df_ap.empty:
-        df_ap = df_ap[df_ap["COMPETENCIA"] == competencia_selecionada]
-    if not df_cred.empty:
-        df_cred = df_cred[df_cred["COMPETENCIA"] == competencia_selecionada]
-elif empresa_selecionada:
-    if not df_c100.empty:
-        df_c100 = df_c100[df_c100["EMPRESA"] == empresa_selecionada]
-    if not df_outros.empty:
-        df_outros = df_outros[df_outros["EMPRESA"] == empresa_selecionada]
-    if not df_ap.empty:
-        df_ap = df_ap[df_ap["EMPRESA"] == empresa_selecionada]
-    if not df_cred.empty:
-        df_cred = df_cred[df_cred["EMPRESA"] == empresa_selecionada]
-
 # =============================================================================
-# CONVERSÃO NUMÉRICA
+# CONVERSÃO NUMÉRICA (para cálculos)
 # =============================================================================
 
 if not df_c100.empty:
@@ -661,24 +631,27 @@ total_cofins = 0.0
 total_base_pis = 0.0
 total_base_cofins = 0.0
 
-if not df_c100.empty:
-    total_pis += df_c100["VL_PIS_NUM"].sum()
-    total_cofins += df_c100["VL_COFINS_NUM"].sum()
-    total_base_pis += df_c100["VL_BC_PIS_NUM"].sum()
-    total_base_cofins += df_c100["VL_BC_COFINS_NUM"].sum()
+# Filtra documentos com crédito real para cálculo de totais
+df_c100_cred = df_c100[(df_c100["VL_PIS_NUM"] > 0) | (df_c100["VL_COFINS_NUM"] > 0)]
+df_outros_cred = df_outros[(df_outros["VL_PIS_NUM"] > 0) | (df_outros["VL_COFINS_NUM"] > 0)]
 
-if not df_outros.empty:
-    # Apenas soma créditos reais (já filtrado em resumo_tipo)
-    total_pis += df_outros["VL_PIS_NUM"].sum()
-    total_cofins += df_outros["VL_COFINS_NUM"].sum()
-    total_base_pis += df_outros["VL_BC_PIS_NUM"].sum()
-    total_base_cofins += df_outros["VL_BC_COFINS_NUM"].sum()
+if not df_c100_cred.empty:
+    total_pis += df_c100_cred["VL_PIS_NUM"].sum()
+    total_cofins += df_c100_cred["VL_COFINS_NUM"].sum()
+    total_base_pis += df_c100_cred["VL_BC_PIS_NUM"].sum()
+    total_base_cofins += df_c100_cred["VL_BC_COFINS_NUM"].sum()
+
+if not df_outros_cred.empty:
+    total_pis += df_outros_cred["VL_PIS_NUM"].sum()
+    total_cofins += df_outros_cred["VL_COFINS_NUM"].sum()
+    total_base_pis += df_outros_cred["VL_BC_PIS_NUM"].sum()
+    total_base_cofins += df_outros_cred["VL_BC_COFINS_NUM"].sum()
 
 # Resumos por tipo de documento (Outros)
-df_servicos = resumo_tipo(df_outros, ["A100/A170"], "Serviços tomados")
-df_energia = resumo_tipo(df_outros, ["C500/C501/C505"], "Energia elétrica")
-df_fretes = resumo_tipo(df_outros, ["D100/D101", "D100/D105"], "Fretes/Transporte")
-df_outros_docs = resumo_tipo(df_outros, ["F100/F120"], "Outros documentos")
+df_servicos = resumo_tipo(df_outros, ["A100/A170"], "Serviços tomados (A100)")
+df_energia = resumo_tipo(df_outros, ["C500/C501/C505"], "Energia/Comunicação (C500)")
+df_fretes = resumo_tipo(df_outros, ["D100/D105"], "Fretes/Transporte (D100)")
+df_outros_docs = resumo_tipo(df_outros, ["F100/F120"], "Outros documentos (F100)")
 
 # Resumo por CFOP Mapeado (NF-e)
 df_cfop_map = resumo_cfop_mapeado(df_c100)
@@ -691,7 +664,7 @@ df_resumo_tipos = pd.concat(
 # Resumo por CFOP (Original, para detalhamento)
 if not df_c100.empty:
     df_cfop_summary = (
-        df_c100.groupby(["COMPETENCIA", "EMPRESA", "CFOP"], as_index=False)[
+        df_c100_cred.groupby(["COMPETENCIA", "EMPRESA", "CFOP"], as_index=False)[
             ["VL_BC_PIS_NUM", "VL_BC_COFINS_NUM", "VL_PIS_NUM", "VL_COFINS_NUM"]
         ]
         .sum()
@@ -829,7 +802,7 @@ with tab_docs:
         
         # Colunas a exibir na tabela principal (COM CHAVE DE ACESSO)
         cols_to_display = [
-            "DT_DOC", "NUM_DOC", "NOME_PART", "NCM", "DESCR_ITEM",
+            "CHV_NFE", "DT_DOC", "NUM_DOC", "NOME_PART", "NCM", "DESCR_ITEM",
             "VL_BC_PIS", "VL_PIS", "VL_BC_COFINS", "VL_COFINS"
         ]
         
@@ -840,6 +813,7 @@ with tab_docs:
         
         # Renomeia para melhor legibilidade
         df_c100_display = df_c100_display.rename(columns={
+            "CHV_NFE": "Chave de Acesso",
             "DT_DOC": "Data Emissão",
             "NUM_DOC": "NF",
             "NOME_PART": "Fornecedor",
@@ -862,9 +836,9 @@ with tab_docs:
         st.markdown("<h3 class='subsection-title'>🏆 Ranking de Créditos por NCM</h3>", unsafe_allow_html=True)
         
         # Calcula ranking por NCM
-        if "NCM" in df_c100.columns:
+        if "NCM" in df_c100_cred.columns:
             # 1. Agrupa por NCM e coleta os dados
-            df_ranking_ncm = df_c100.groupby("NCM", as_index=False).agg({
+            df_ranking_ncm = df_c100_cred.groupby("NCM", as_index=False).agg({
                 "VL_PIS_NUM": "sum",
                 "VL_COFINS_NUM": "sum",
                 "DESCR_ITEM": lambda x: " | ".join(x.unique()[:5])  # Top 5 produtos
@@ -897,8 +871,8 @@ with tab_docs:
         st.markdown("<div class='divider'></div>", unsafe_allow_html=True)
         st.markdown("<h3 class='subsection-title'>⭐ Top 10 Produtos com Maior Crédito PIS/COFINS</h3>", unsafe_allow_html=True)
         
-        if "COD_ITEM" in df_c100.columns:
-            df_ranking_produtos = df_c100.groupby(["COD_ITEM", "DESCR_ITEM", "NCM"], as_index=False).agg({
+        if "COD_ITEM" in df_c100_cred.columns:
+            df_ranking_produtos = df_c100_cred.groupby(["COD_ITEM", "DESCR_ITEM", "NCM"], as_index=False).agg({
                 "VL_PIS_NUM": "sum",
                 "VL_COFINS_NUM": "sum"
             }).rename(columns={
@@ -956,7 +930,17 @@ with tab_docs:
         
         df_outros_display = df_outros_filtrado[cols_to_display].copy()
         
-        # Nota: Documentos com bases zeradas são mantidos pois podem ter valores de imposto
+        # Renomeia para melhor legibilidade
+        df_outros_display = df_outros_display.rename(columns={
+            "TIPO": "Tipo Doc.",
+            "DOC": "Número Doc.",
+            "DT_DOC": "Data Doc.",
+            "VL_BC_PIS": "BC PIS",
+            "VL_PIS": "Valor PIS",
+            "VL_BC_COFINS": "BC COFINS",
+            "VL_COFINS": "Valor COFINS"
+        })
+        
         st.dataframe(
             format_df_currency(df_outros_display),
             use_container_width=True,
@@ -1009,14 +993,17 @@ with tab_charts:
         # Gráfico de barras comparativo
         st.markdown("<h3 class='subsection-title'>Comparativo PIS vs COFINS por Tipo</h3>", unsafe_allow_html=True)
 
+        df_plot_melt = df_plot.melt(id_vars="GRUPO", value_vars=["PIS", "COFINS"], var_name="Tributo", value_name="Valor")
+
         fig_bar = px.bar(
-            df_plot,
+            df_plot_melt,
             x="GRUPO",
-            y=["PIS", "COFINS"],
+            y="Valor",
+            color="Tributo",
             title="Comparativo de Créditos",
             barmode="group",
             color_discrete_map={"PIS": "#1e3a8a", "COFINS": "#0f766e"},
-            labels={"value": "Valor (R$)", "GRUPO": "Tipo de Documento"},
+            labels={"Valor": "Valor (R$)", "GRUPO": "Tipo de Documento"},
         )
         fig_bar.update_layout(
             hovermode="x unified",
@@ -1085,7 +1072,7 @@ with tab_export:
                 total_pis + total_cofins,
                 total_base_pis,
                 total_base_cofins,
-                len(uploaded_files),
+                len(st.session_state.files_data),
             ],
         })
         resumo_exec.to_excel(writer, sheet_name="RESUMO_EXECUTIVO", index=False)
