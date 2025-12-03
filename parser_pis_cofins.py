@@ -298,11 +298,27 @@ def parse_efd_piscofins(
             continue
 
         if reg == "A170" and current_a100:
-            # A100: 10: VL_BC_PIS, 11: VL_PIS, 12: VL_BC_COFINS, 13: VL_COFINS
-            vl_bc_pis = _get(current_a100, 10)
-            vl_pis = _get(current_a100, 11)
-            vl_bc_cof = _get(current_a100, 12)
-            vl_cof = _get(current_a100, 13)
+            # A100 - Campos corretos (contando de 0):
+            # 6: NUM_DOC, 11: DT_VENC
+            # 14: VL_BC_PIS, 15: VL_PIS, 16: VL_BC_COFINS, 17: VL_COFINS
+            # 18: VL_BC_PIS_OUTRAS, 19: VL_PIS_OUTRAS, 20: VL_BC_COFINS_OUTRAS, 21: VL_COFINS_OUTRAS
+            num_doc = _get(current_a100, 6)
+            dt_doc = _get(current_a100, 11)
+            
+            # Tenta primeiro os campos principais (14-17)
+            vl_bc_pis = _get(current_a100, 14)
+            vl_pis = _get(current_a100, 15)
+            vl_bc_cof = _get(current_a100, 16)
+            vl_cof = _get(current_a100, 17)
+            
+            # Se os campos principais estao zerados, tenta o bloco OUTRAS (18-21)
+            if _to_float(vl_bc_pis) == 0.0 and _to_float(vl_pis) == 0.0:
+                vl_bc_pis = _get(current_a100, 18)
+                vl_pis = _get(current_a100, 19)
+            
+            if _to_float(vl_bc_cof) == 0.0 and _to_float(vl_cof) == 0.0:
+                vl_bc_cof = _get(current_a100, 20)
+                vl_cof = _get(current_a100, 21)
 
             if _to_float(vl_pis) > 0.0 or _to_float(vl_cof) > 0.0:
                 records_out.append(
@@ -310,8 +326,8 @@ def parse_efd_piscofins(
                         "COMPETENCIA": competencia,
                         "EMPRESA": empresa,
                         "TIPO": "A100/A170",
-                        "DOC": _get(current_a100, 6),  # NUM_DOC
-                        "DT_DOC": _get(current_a100, 7),  # DT_DOC
+                        "DOC": num_doc,
+                        "DT_DOC": dt_doc,
                         "VL_BC_PIS": vl_bc_pis,
                         "VL_PIS": vl_pis,
                         "VL_BC_COFINS": vl_bc_cof,
