@@ -299,28 +299,23 @@ def parse_efd_piscofins(
 
         if reg == "A170" and current_a100:
             # A100 - Campos corretos (contando de 0):
-            # 6: NUM_DOC, 11: DT_VENC
+            # 4: NUM_DOC, 10: DT_EMISSAO
+            # 16: VL_BC_PIS, 17: VL_PIS, 18: VL_BC_COFINS, 19: VL_COFINS (geralmente 0)
             
-            num_doc = _get(current_a100, 6)
-            dt_doc = _get(current_a100, 11)
+            num_doc = _get(current_a100, 4)
+            dt_doc = _get(current_a100, 10)
             
-            # Baseado no exemplo do usuário: |...|382,45|6,31|382,45|29,07|...
-            # 16: VL_BC_PIS, 17: VL_PIS, 18: VL_BC_COFINS, 19: VL_COFINS
-            
-            # Extração dos campos principais (PIS/COFINS)
+            # Extração dos campos principais (PIS/COFINS) do A100
             vl_bc_pis = _get(current_a100, 16)
             vl_pis = _get(current_a100, 17)
             vl_bc_cof = _get(current_a100, 18)
             vl_cof = _get(current_a100, 19)
             
-            # Se os campos principais forem 0, tenta os campos OUTRAS (20, 21, 22, 23)
-            if _to_float(vl_pis) == 0.0 and len(current_a100) > 20:
-                vl_bc_pis = _get(current_a100, 20)
-                vl_pis = _get(current_a100, 21)
-            
-            if _to_float(vl_cof) == 0.0 and len(current_a100) > 22:
-                vl_bc_cof = _get(current_a100, 22)
-                vl_cof = _get(current_a100, 23)
+            # Se COFINS estiver vazio ou zero, extrai do A170
+            # A170 - Campos: [14]: VL_BC_COFINS, [15]: VL_COFINS (alíquota), [16]: VL_COFINS (valor)
+            if _to_float(vl_cof) == 0.0 and len(p) > 16:
+                vl_bc_cof = _get(p, 14)
+                vl_cof = _get(p, 16)  # Campo correto do COFINS
 
             if _to_float(vl_pis) > 0.0 or _to_float(vl_cof) > 0.0:
                 records_out.append(
