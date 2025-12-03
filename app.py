@@ -778,7 +778,7 @@ with tab_exec:
             .agg(
                 Total_PIS=("VL_PIS_NUM", "sum"),
                 Total_COFINS=("VL_COFINS_NUM", "sum"),
-                Total_Creditos=("VL_PIS_NUM", "sum") + df_c100_cred["VL_COFINS_NUM"].sum(),
+                Total_Creditos=df_c100_cred["VL_PIS_NUM"].sum() + df_c100_cred["VL_COFINS_NUM"].sum(),
                 Produtos=("DESCR_ITEM", lambda x: ", ".join(x.unique()[:5])) # Top 5 produtos
             )
             .sort_values(by="Total_Creditos", ascending=False)
@@ -808,7 +808,7 @@ with tab_exec:
             .agg(
                 Total_PIS=("VL_PIS_NUM", "sum"),
                 Total_COFINS=("VL_COFINS_NUM", "sum"),
-                Total_Creditos=("VL_PIS_NUM", "sum") + df_c100_cred["VL_COFINS_NUM"].sum(),
+                Total_Creditos=df_c100_cred["VL_PIS_NUM"].sum() + df_c100_cred["VL_COFINS_NUM"].sum(),
             )
             .sort_values(by="Total_Creditos", ascending=False)
             .head(10)
