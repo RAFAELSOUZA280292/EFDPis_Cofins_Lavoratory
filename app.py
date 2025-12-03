@@ -554,15 +554,9 @@ with st.expander("📂 Ver detalhes e remover arquivos", expanded=False):
         col_cnpj.text(data['empresa'])
         
         if col_remove.button("Remover", key=f"remove_{idx}"):
-            files_to_remove.append(idx)
-
-    # Remove os arquivos marcados
-    if files_to_remove:
-        # Remove em ordem decrescente para não bagunçar os índices
-        for idx in sorted(files_to_remove, reverse=True):
+            # Remove o arquivo diretamente e força rerun imediatamente
             st.session_state.files_data.pop(idx)
-        # Força a atualização da página após remover arquivos
-        st.rerun()
+            st.rerun()
 
 st.markdown("<div class='divider'></div>", unsafe_allow_html=True)
 
