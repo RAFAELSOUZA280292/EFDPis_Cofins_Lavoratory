@@ -1,15 +1,14 @@
 """
-LavoraTax Advisor – EFD PIS/COFINS (Versão 3.2.2 - Premium Executiva Otimizada)
+LavoraTax Advisor – EFD PIS/COFINS (Versão 3.2.3 - Premium Executiva Otimizada)
 ================================================================================
 
 Painel executivo premium para análise consolidada de créditos de PIS/COFINS.
 Otimizado para CEO, CFO, Diretores Tributários e Financeiros.
 
-Principais melhorias v3.2.2:
+Principais melhorias v3.2.3:
+* **FIX:** Corrigida a extração de PIS/COFINS para o registro A100 no parser.
 * **FIX:** Corrigido o erro de NameError ('_decode_bytes' is not defined) na função parse_file.
 * **FIX:** Estabilidade e correção de loops no parser.
-* **FIX:** Extração correta de dados de A100, C500, D100 e F100 no parser.
-* **FIX:** Exibição da Chave de Acesso (CHV_NFE) na tabela C100/C170.
 * **BRANDING:** Renomeado para LavoraTax Advisor (braço da Lavoratory Group).
 """
 
