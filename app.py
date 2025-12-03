@@ -1,5 +1,5 @@
 """
-LavoraTAX Advisor – EFD PIS/COFINS (Versão 2.1 - Executiva)
+LavoraTAX Advisor – EFD PIS/COFINS (Versão 2.2 - Executiva)
 ===========================================================
 
 Painel executivo para análise consolidada de créditos de PIS/COFINS.
@@ -15,6 +15,7 @@ Principais melhorias:
 * Performance otimizada com cache
 * **FIX:** Formatação de moeda brasileira nas tabelas
 * **NEW:** Consolidação de créditos de NF-e (C100/C170) por CFOP mapeado
+* **NEW:** Filtros de Competência e Empresa com exibição no cabeçalho
 """
 
 import io
@@ -263,7 +264,6 @@ def to_float(value) -> float:
 
 def format_currency(value: float) -> str:
     """Formata valor como moeda brasileira (R$ 1.234,56)."""
-    # Usa o locale para formatação correta (milhar com ponto, decimal com vírgula)
     return f"R$ {value:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
 
@@ -276,10 +276,14 @@ def format_df_currency(df: pd.DataFrame) -> pd.DataFrame:
     
     for col in cols_to_format:
         if col in df_formatted.columns:
-            # Converte para float e formata como moeda brasileira
-            # O uso de float(x) é seguro aqui porque as colunas já foram convertidas para números (VL_..._NUM)
-            # ou são resultados de soma (BASE_..., PIS, COFINS, TOTAL)
-            df_formatted[col] = df_formatted[col].apply(lambda x: format_currency(float(x)) if pd.notna(x) else "R$ 0,00")
+            try:
+                # Tenta converter para numérico, forçando erro se não for possível
+                df_formatted[col] = pd.to_numeric(df_formatted[col], errors='coerce').fillna(0.0)
+                # Aplica a formatação de moeda
+                df_formatted[col] = df_formatted[col].apply(lambda x: format_currency(float(x)))
+            except Exception:
+                # Se houver erro (coluna de texto), ignora e mantém a coluna original
+                pass
     
     return df_formatted
 
@@ -353,11 +357,9 @@ def resumo_cfop_mapeado(df_c100: pd.DataFrame) -> pd.DataFrame:
     if df_c100.empty:
         return pd.DataFrame(columns=cols)
 
-    # Cria a coluna de CFOP Mapeado
     df = df_c100.copy()
     df["CFOP_GRUPO"] = df["CFOP"].astype(str).map(CFOP_MAP).fillna("Outras NF-e de Entrada")
 
-    # Agrupa por Competência, Empresa e CFOP Mapeado
     grouped = (
         df.groupby(["COMPETENCIA", "EMPRESA", "CFOP_GRUPO"], as_index=False)[
             ["VL_BC_PIS_NUM", "VL_BC_COFINS_NUM", "VL_PIS_NUM", "VL_COFINS_NUM"]
@@ -500,11 +502,74 @@ for idx, f in enumerate(uploaded_files):
 status_text.empty()
 progress_bar.empty()
 
+# Extracao de competencias e empresas
+competencias_disponiveis = []
+empresas_disponiveis = []
+
+for info in files_info:
+    if info["competencia"] not in competencias_disponiveis:
+        competencias_disponiveis.append(info["competencia"])
+    if info["empresa"] not in empresas_disponiveis:
+        empresas_disponiveis.append(info["empresa"])
+
+competencias_disponiveis.sort()
+empresas_disponiveis.sort()
+
+# Exibir informacoes dos arquivos carregados
+if files_info:
+    st.markdown("<div class='divider'></div>", unsafe_allow_html=True)
+    st.markdown("### 📋 Arquivos Carregados", unsafe_allow_html=True)
+    
+    col_comp, col_emp = st.columns(2)
+    
+    with col_comp:
+        st.markdown(f"**Competências:** {', '.join(competencias_disponiveis)}")
+    
+    with col_emp:
+        st.markdown(f"**Empresas:** {', '.join(empresas_disponiveis)}")
+    
+    st.markdown("<div class='divider'></div>", unsafe_allow_html=True)
+    
+    # Filtros de Competencia e Empresa
+    st.markdown("### 🔍 Filtros de Análise", unsafe_allow_html=True)
+    
+    col_filter_comp, col_filter_emp = st.columns(2)
+    
+    with col_filter_comp:
+        competencia_selecionada = st.selectbox(
+            "Selecione a Competência:",
+            competencias_disponiveis,
+            key="filter_competencia"
+        )
+    
+    with col_filter_emp:
+        empresa_selecionada = st.selectbox(
+            "Selecione a Empresa:",
+            empresas_disponiveis,
+            key="filter_empresa"
+        )
+    
+    st.markdown("<div class='divider'></div>", unsafe_allow_html=True)
+else:
+    competencia_selecionada = None
+    empresa_selecionada = None
+
 # Combina DataFrames
 df_c100 = pd.concat(dfs_c100, ignore_index=True) if dfs_c100 else pd.DataFrame()
 df_outros = pd.concat(dfs_outros, ignore_index=True) if dfs_outros else pd.DataFrame()
 df_ap = pd.concat(dfs_ap, ignore_index=True) if dfs_ap else pd.DataFrame()
 df_cred = pd.concat(dfs_cred, ignore_index=True) if dfs_cred else pd.DataFrame()
+
+# Filtra pelos seletores se disponíveis
+if competencia_selecionada and empresa_selecionada:
+    if not df_c100.empty:
+        df_c100 = df_c100[(df_c100["COMPETENCIA"] == competencia_selecionada) & (df_c100["EMPRESA"] == empresa_selecionada)]
+    if not df_outros.empty:
+        df_outros = df_outros[(df_outros["COMPETENCIA"] == competencia_selecionada) & (df_outros["EMPRESA"] == empresa_selecionada)]
+    if not df_ap.empty:
+        df_ap = df_ap[(df_ap["COMPETENCIA"] == competencia_selecionada) & (df_ap["EMPRESA"] == empresa_selecionada)]
+    if not df_cred.empty:
+        df_cred = df_cred[(df_cred["COMPETENCIA"] == competencia_selecionada) & (df_cred["EMPRESA"] == empresa_selecionada)]
 
 # =============================================================================
 # CONVERSÃO NUMÉRICA
@@ -545,7 +610,6 @@ if not df_outros.empty:
 
 total_ap_pis = 0.0
 if not df_ap.empty:
-    # Procura pela coluna de contribuição total
     for col in df_ap.columns:
         if "Contribuição" in col and "Período" in col:
             total_ap_pis = df_ap[col].apply(to_float).sum()
@@ -696,40 +760,19 @@ with tab_exec:
     st.markdown("<div class='divider'></div>", unsafe_allow_html=True)
 
     # Resumo por competência e empresa
-    st.markdown("<h3 class='subsection-title'>Resumo por Competência e Empresa</h3>", unsafe_allow_html=True)
+    st.markdown("<h3 class='subsection-title'>Resumo Consolidado</h3>", unsafe_allow_html=True)
 
     if not df_resumo_tipos.empty:
-        # Seletor de competência e empresa
-        combos = (
-            df_resumo_tipos[["COMPETENCIA", "EMPRESA"]]
-            .drop_duplicates()
-            .sort_values(["COMPETENCIA", "EMPRESA"])
+        df_resumo_consolidado = df_resumo_tipos.groupby("GRUPO", as_index=False)[
+            ["BASE_PIS", "BASE_COFINS", "PIS", "COFINS"]
+        ].sum()
+        df_resumo_consolidado["TOTAL"] = df_resumo_consolidado["PIS"] + df_resumo_consolidado["COFINS"]
+
+        st.dataframe(
+            format_df_currency(df_resumo_consolidado),
+            use_container_width=True,
+            height=250,
         )
-        combo_options = [
-            f"{row[0]} - {row[1]}" for row in combos.itertuples(index=False, name=None)
-        ]
-
-        if combo_options:
-            selected = st.selectbox(
-                "Selecione a competência e empresa:",
-                combo_options,
-                key="exec_combo",
-            )
-            sel_comp, sel_emp = selected.split(" - ", 1)
-            df_sel = df_resumo_tipos[
-                (df_resumo_tipos["COMPETENCIA"] == sel_comp)
-                & (df_resumo_tipos["EMPRESA"] == sel_emp)
-            ]
-
-            if not df_sel.empty:
-                df_sel_display = df_sel.copy()
-                df_sel_display["TOTAL"] = df_sel_display["PIS"] + df_sel_display["COFINS"]
-
-                st.dataframe(
-                    format_df_currency(df_sel_display),
-                    use_container_width=True,
-                    height=250,
-                )
 
 # =============================================================================
 # ABA 2: DOCUMENTOS (DETALHAMENTO TÉCNICO)
@@ -745,11 +788,19 @@ with tab_docs:
         st.info("ℹ️ Nenhum registro C100/C170 foi identificado.")
     else:
         st.metric("Total de linhas de NF-e", len(df_c100))
+        
+        # Seleciona apenas colunas numéricas para formatação
+        cols_to_display = ["COMPETENCIA", "EMPRESA", "NUM_DOC", "DT_DOC", "COD_PART", "CFOP"]
+        numeric_cols = ["VL_BC_PIS", "VL_PIS", "VL_BC_COFINS", "VL_COFINS"]
+        
+        # Adiciona colunas que existem
+        for col in numeric_cols:
+            if col in df_c100.columns:
+                cols_to_display.append(col)
+        
+        df_c100_display = df_c100[cols_to_display].copy()
         st.dataframe(
-            format_df_currency(df_c100[[
-                "COMPETENCIA", "EMPRESA", "NUM_DOC", "DT_DOC", "COD_PART",
-                "CFOP", "VL_BC_PIS", "VL_PIS", "VL_BC_COFINS", "VL_COFINS"
-            ]]),
+            format_df_currency(df_c100_display),
             use_container_width=True,
             height=400,
         )
@@ -774,11 +825,16 @@ with tab_docs:
 
         df_outros_filtrado = df_outros[df_outros["TIPO"].isin(tipo_selecionado)]
 
+        cols_to_display = ["COMPETENCIA", "EMPRESA", "TIPO", "DOC", "DT_DOC"]
+        numeric_cols = ["VL_BC_PIS", "VL_PIS", "VL_BC_COFINS", "VL_COFINS"]
+        
+        for col in numeric_cols:
+            if col in df_outros_filtrado.columns:
+                cols_to_display.append(col)
+        
+        df_outros_display = df_outros_filtrado[cols_to_display].copy()
         st.dataframe(
-            format_df_currency(df_outros_filtrado[[
-                "COMPETENCIA", "EMPRESA", "TIPO", "DOC", "DT_DOC",
-                "VL_BC_PIS", "VL_PIS", "VL_BC_COFINS", "VL_COFINS"
-            ]]),
+            format_df_currency(df_outros_display),
             use_container_width=True,
             height=400,
         )
