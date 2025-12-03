@@ -182,9 +182,9 @@ def parse_efd_piscofins(
     def finalize_c500():
         """Função auxiliar para finalizar o bloco C500/C501/C505."""
         nonlocal current_c500
-        if current_c500:
+        if current_c500 and len(current_c500) > 22:
             # Se for C500 (pai), adiciona o registro principal
-            if _get(current_c500, 2) == "C500":
+            if _get(current_c500, 1) == "C500":
                 # Campos C500:
                 # 19: VL_BC_PIS, 20: VL_PIS, 21: VL_BC_COFINS, 22: VL_COFINS
                 vl_bc_pis = _get(current_c500, 19)
@@ -327,33 +327,10 @@ def parse_efd_piscofins(
             continue
 
         if reg == "C501" or reg == "C505":
-            # C501/C505 são registros filhos, mas o crédito está no C500 (pai)
-            # A lógica de finalize_c500() trata o C500.
-            # Se for C501 ou C505, apenas garante que o C500 foi lido
+            # C501/C505 são registros filhos, o crédito está no C500 (pai)
+            # Apenas marca que foi processado, sem duplicar dados
             if current_c500 is None:
                 continue
-            
-            # C500: 19: VL_BC_PIS, 20: VL_PIS, 21: VL_BC_COFINS, 22: VL_COFINS
-            vl_bc_pis = _get(current_c500, 19)
-            vl_pis = _get(current_c500, 20)
-            vl_bc_cof = _get(current_c500, 21)
-            vl_cof = _get(current_c500, 22)
-
-            if _to_float(vl_pis) > 0.0 or _to_float(vl_cof) > 0.0:
-                records_out.append(
-                    {
-                        "COMPETENCIA": competencia,
-                        "EMPRESA": empresa,
-                        "TIPO": "C500/C501/C505",
-                        "DOC": _get(current_c500, 13),  # NUM_DOC
-                        "DT_DOC": _get(current_c500, 14),  # DT_DOC
-                        "VL_BC_PIS": vl_bc_pis,
-                        "VL_PIS": vl_pis,
-                        "VL_BC_COFINS": vl_bc_cof,
-                        "VL_COFINS": vl_cof,
-                    }
-                )
-            current_c500 = None
             continue
 
         # ------------ D100 / D101 / D105 (Fretes) ------------
