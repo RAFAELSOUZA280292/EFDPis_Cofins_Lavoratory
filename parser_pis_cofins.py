@@ -98,51 +98,45 @@ def _extract_metadata_0000(lines: List[str]) -> Tuple[str, str]:
       - empresa (razão social)
     a partir do registro 0000.
     """
-    competencia = ""
-    empresa = ""
-
     for line in lines:
-        p = line.strip().split("|")
-        if len(p) > 1 and p[1] == "0000":
-            # |0000|...|DT_INI|DT_FIN|NOME|
-            dt_ini = _get(p, 6)
-            empresa = _get(p, 8)
-            if len(dt_ini) == 8 and dt_ini.isdigit():
-                # formato ddmmaaaa
-                competencia = f"{dt_ini[2:4]}/{dt_ini[4:8]}"
-            break
-
-    return competencia, empresa
+        if line.startswith("|0000|"):
+            parts = line.split("|")
+            competencia = _get(parts, 7)  # DT_FIN (DDMMAAAA)
+            empresa = _get(parts, 9)  # NOME_EMP
+            return f"{competencia[2:4]}/{competencia[4:8]}", empresa
+    return "N/A", "N/A"
 
 
-def _build_maps(lines: List[str]) -> Tuple[Dict[str, str], Dict[str, str]]:
+def _extract_metadata_0200(lines: List[str]) -> Dict[str, str]:
     """
-    Constrói:
-      - mapa de participantes (0150): COD_PART -> NOME
+    Extrai:
       - mapa de itens (0200): COD_ITEM -> NCM
     """
-    map_part_nome: Dict[str, str] = {}
-    map_coditem_ncm: Dict[str, str] = {}
-
+    map_coditem_ncm = {}
     for line in lines:
-        p = line.strip().split("|")
-        if len(p) < 3:
-            continue
-        reg = p[1]
-
-        if reg == "0150":
-            cod = _get(p, 2)
-            nome = _get(p, 3)
-            if cod:
-                map_part_nome[cod] = nome
-
-        elif reg == "0200":
-            cod_item = _get(p, 2)
-            ncm = _get(p, 8)
-            if cod_item:
+        if line.startswith("|0200|"):
+            parts = line.split("|")
+            cod_item = _get(parts, 2)
+            ncm = _get(parts, 8)
+            if cod_item and ncm:
                 map_coditem_ncm[cod_item] = ncm
+    return map_coditem_ncm
 
-    return map_part_nome, map_coditem_ncm
+
+def _extract_metadata_0150(lines: List[str]) -> Dict[str, str]:
+    """
+    Extrai:
+      - mapa de participantes (0150): COD_PART -> NOME
+    """
+    map_part_nome = {}
+    for line in lines:
+        if line.startswith("|0150|"):
+            parts = line.split("|")
+            cod_part = _get(parts, 2)
+            nome = _get(parts, 3)
+            if cod_part and nome:
+                map_part_nome[cod_part] = nome
+    return map_part_nome
 
 
 # =========================
@@ -150,125 +144,77 @@ def _build_maps(lines: List[str]) -> Tuple[Dict[str, str], Dict[str, str]]:
 # =========================
 
 
-M200_HEADERS = [
-    "Valor Total da Contribuição Não-cumulativa do Período",
-    "Valor do Crédito Descontado, Apurado no Próprio Período da Escrituração",
-    "Valor do Crédito Descontado, Apurado em Período de Apuração Anterior",
-    "Valor Total da Contribuição Não Cumulativa Devida",
-    "Valor Retido na Fonte Deduzido no Período (Não Cumulativo)",
-    "Outras Deduções do Regime Não Cumulativo no Período",
-    "Valor da Contribuição Não Cumulativa a Recolher/Pagar",
-    "Valor Total da Contribuição Cumulativa do Período",
-    "Valor Retido na Fonte Deduzido no Período (Cumulativo)",
-    "Outras Deduções do Regime Cumulativo no Período",
-    "Valor da Contribuição Cumulativa a Recolher/Pagar",
-    "Valor Total da Contribuição a Recolher/Pagar no Período",
-]
-
-
 def parse_efd_piscofins(
     lines: List[str],
 ) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, str, str]:
     """
-    Faz o parsing das principais estruturas da EFD PIS/COFINS.
-
-    Retorna:
-      - df_c100: NF-e de entrada (C100/C170) com créditos de PIS/COFINS
-      - df_outros: Serviços, energia, fretes, demais docs
-      - df_ap_pis: Apuração PIS (M200)
-      - df_cred_pis: Créditos PIS (M105)
-      - competencia (MM/AAAA)
-      - empresa (razão social)
+    Recebe as linhas do SPED e retorna DataFrames com os dados de crédito.
     """
     competencia, empresa = _extract_metadata_0000(lines)
-    map_part_nome, map_coditem_ncm = _build_maps(lines)
+    map_coditem_ncm = _extract_metadata_0200(lines)
+    map_part_nome = _extract_metadata_0150(lines)
 
-    records_c100: List[Dict] = []
-    records_out: List[Dict] = []
-    records_ap_pis: List[Dict] = []
-    records_cred_pis: List[Dict] = []
+    records_c100 = []  # NF-e de entrada (C100/C170)
+    records_out = []  # Outros documentos (A100/A170, C500/C501/C505, D100/D101/D105, F100/F120)
+    records_ap_pis = []  # M200
+    records_cred_pis = []  # M105
 
+    # Variáveis de estado para registros pais
     current_c100 = None  # última C100 lida
     current_a100 = None  # última A100 lida
+    current_c500 = None  # última C500 lida
     current_d100 = None  # última D100 lida
     current_f100 = None  # última F100 lida
 
-    # Energia elétrica (C500/C501/C505)
-    current_c500 = None
-    # Usamos acumuladores numéricos para base, alíquota e valor de PIS/COFINS
-    # para evitar somas incorretas quando múltiplos C501/C505 aparecem
-    c500_pis_bc = 0.0
-    c500_pis_aliq = 0.0
-    c500_pis_val = 0.0
-    c500_cof_bc = 0.0
-    c500_cof_aliq = 0.0
-    c500_cof_val = 0.0
-
-    def _fmt_brl(x: float) -> str:
-        """
-        Converte um float para string no formato brasileiro sem separador de milhar
-        (ex.: 1234.56 -> '1234,56').
-        """
-        return f"{x:.2f}".replace(".", ",")
+    # Headers para M200 (simplificado)
+    M200_HEADERS = [
+        "VL_TOT_CONT_PER",
+        "VL_TOT_CRED_DESC",
+        "VL_TOT_CRED_DESC_ANT",
+        "VL_TOT_CRED_DESC_PER",
+        "VL_TOT_CRED_DESC_FUT",
+        "VL_TOT_CRED_DESC_COFINS",
+        "VL_TOT_CRED_DESC_COFINS_ANT",
+        "VL_TOT_CRED_DESC_COFINS_PER",
+        "VL_TOT_CRED_DESC_COFINS_FUT",
+    ]
 
     def finalize_c500():
-        nonlocal current_c500, c500_pis_bc, c500_pis_aliq, c500_pis_val
-        nonlocal c500_cof_bc, c500_cof_aliq, c500_cof_val
+        """Função auxiliar para finalizar o bloco C500/C501/C505."""
+        nonlocal current_c500
+        if current_c500:
+            # Se for C500 (pai), adiciona o registro principal
+            if _get(current_c500, 2) == "C500":
+                # Campos C500:
+                # 19: VL_BC_PIS, 20: VL_PIS, 21: VL_BC_COFINS, 22: VL_COFINS
+                vl_bc_pis = _get(current_c500, 19)
+                vl_pis = _get(current_c500, 20)
+                vl_bc_cof = _get(current_c500, 21)
+                vl_cof = _get(current_c500, 22)
 
-        if not current_c500:
-            return
-
-        # Se não houver base ou valor, descarta
-        if (
-            c500_pis_bc == 0.0
-            and c500_pis_val == 0.0
-            and c500_cof_bc == 0.0
-            and c500_cof_val == 0.0
-        ):
-            # reseta acumuladores e variável
+                if _to_float(vl_pis) > 0.0 or _to_float(vl_cof) > 0.0:
+                    records_out.append(
+                        {
+                            "COMPETENCIA": competencia,
+                            "EMPRESA": empresa,
+                            "TIPO": "C500/C501/C505",
+                            "DOC": _get(current_c500, 13),  # NUM_DOC
+                            "DT_DOC": _get(current_c500, 14),  # DT_DOC
+                            "VL_BC_PIS": vl_bc_pis,
+                            "VL_PIS": vl_pis,
+                            "VL_BC_COFINS": vl_bc_cof,
+                            "VL_COFINS": vl_cof,
+                        }
+                    )
             current_c500 = None
-            c500_pis_bc = c500_pis_aliq = c500_pis_val = 0.0
-            c500_cof_bc = c500_cof_aliq = c500_cof_val = 0.0
-            return
 
-        p = current_c500
-        # Mapeamento correto: cod_part em p[2], número do documento em p[7], data documento em p[8], valor doc em p[10]
-        cod_part = _get(p, 2)
-        num_doc = _get(p, 7)
-        dt_doc = _get(p, 8)
-        vl_doc = _get(p, 10)
-
-        records_out.append(
-            {
-                "COMPETENCIA": competencia,
-                "EMPRESA": empresa,
-                "TIPO": "C500/C501/C505",
-                "DOC": num_doc,
-                "DT_DOC": dt_doc,
-                "COD_PART": cod_part,
-                "NOME_PART": map_part_nome.get(cod_part, ""),
-                "VL_DOC": vl_doc,
-                # formatamos acumuladores para string BR para evitar erro de soma dupla
-                "VL_BC_PIS": _fmt_brl(c500_pis_bc),
-                "ALIQ_PIS": _fmt_brl(c500_pis_aliq),
-                "VL_PIS": _fmt_brl(c500_pis_val),
-                "VL_BC_COFINS": _fmt_brl(c500_cof_bc),
-                "ALIQ_COFINS": _fmt_brl(c500_cof_aliq),
-                "VL_COFINS": _fmt_brl(c500_cof_val),
-            }
-        )
-
-        # reseta acumuladores
-        current_c500 = None
-        c500_pis_bc = c500_pis_aliq = c500_pis_val = 0.0
-        c500_cof_bc = c500_cof_aliq = c500_cof_val = 0.0
-
-    # Loop principal
     for line in lines:
-        p = line.strip().split("|")
-        if len(p) < 3:
-            continue
-        reg = p[1]
+        p = line.split("|")
+        reg = _get(p, 1)
+
+        # Finaliza blocos anteriores
+        if reg.startswith("C") and reg != "C500" and reg != "C501" and reg != "C505":
+            finalize_c500()
 
         # ------------ C100 / C170 (NF-e entradas) ------------
         if reg == "C100":
@@ -288,6 +234,7 @@ def parse_efd_piscofins(
             dt_doc = _get(current_c100, 10)
             dt_entr = _get(current_c100, 11)
             vl_doc = _get(current_c100, 12)
+            chv_nfe = _get(current_c100, 10) # CHV_NFE (Campo 10 do C100)
 
             # C170
             num_item = _get(p, 2)
@@ -307,12 +254,10 @@ def parse_efd_piscofins(
             aliq_cof = _get(p, 33)
             vl_cof = _get(p, 36)
 
-            # só mantém linhas com base ou valor > 0
+            # só mantém linhas com crédito real (PIS ou COFINS > 0)
             if (
                 _to_float(vl_pis) == 0.0
                 and _to_float(vl_cof) == 0.0
-                and _to_float(vl_bc_pis) == 0.0
-                and _to_float(vl_bc_cof) == 0.0
             ):
                 continue
 
@@ -329,6 +274,7 @@ def parse_efd_piscofins(
                     "DT_DOC": dt_doc,
                     "DT_ENTR": dt_entr,
                     "VL_DOC": vl_doc,
+                    "CHV_NFE": chv_nfe, # Adicionado
                     "NUM_ITEM": num_item,
                     "COD_ITEM": cod_item,
                     "DESCR_ITEM": descr_item,
@@ -352,166 +298,101 @@ def parse_efd_piscofins(
             continue
 
         if reg == "A170" and current_a100:
-            cod_part = _get(current_a100, 4)
-            num_doc = _get(current_a100, 8)
-            dt_doc = _get(current_a100, 9)
-            vl_doc = _get(current_a100, 11)
+            # A100: 10: VL_BC_PIS, 11: VL_PIS, 12: VL_BC_COFINS, 13: VL_COFINS
+            vl_bc_pis = _get(current_a100, 10)
+            vl_pis = _get(current_a100, 11)
+            vl_bc_cof = _get(current_a100, 12)
+            vl_cof = _get(current_a100, 13)
 
-            # A170: campos de PIS/COFINS a partir da posição 9
-            # 09 CST_PIS, 10 VL_BC_PIS, 11 ALIQ_PIS, 12 VL_PIS
-            # 13 CST_COFINS, 14 VL_BC_COFINS, 15 ALIQ_COFINS, 16 VL_COFINS
-            cfop = ""  # A170 não possui CFOP
-            cst_pis = _get(p, 9)
-            vl_bc_pis = _get(p, 10)
-            aliq_pis = _get(p, 11)
-            vl_pis = _get(p, 12)
-
-            cst_cof = _get(p, 13)
-            vl_bc_cof = _get(p, 14)
-            aliq_cof = _get(p, 15)
-            vl_cof = _get(p, 16)
-
-            if (
-                _to_float(vl_pis) == 0.0
-                and _to_float(vl_cof) == 0.0
-                and _to_float(vl_bc_pis) == 0.0
-                and _to_float(vl_bc_cof) == 0.0
-            ):
-                continue
-
-            records_out.append(
-                {
-                    "COMPETENCIA": competencia,
-                    "EMPRESA": empresa,
-                    "TIPO": "A100/A170",
-                    "DOC": num_doc,
-                    "DT_DOC": dt_doc,
-                    "COD_PART": cod_part,
-                    "NOME_PART": map_part_nome.get(cod_part, ""),
-                    "VL_DOC": vl_doc,
-                    "CFOP": cfop,
-                    "CST_PIS": cst_pis,
-                    "VL_BC_PIS": vl_bc_pis,
-                    "ALIQ_PIS": aliq_pis,
-                    "VL_PIS": vl_pis,
-                    "CST_COFINS": cst_cof,
-                    "VL_BC_COFINS": vl_bc_cof,
-                    "ALIQ_COFINS": aliq_cof,
-                    "VL_COFINS": vl_cof,
-                }
-            )
+            if _to_float(vl_pis) > 0.0 or _to_float(vl_cof) > 0.0:
+                records_out.append(
+                    {
+                        "COMPETENCIA": competencia,
+                        "EMPRESA": empresa,
+                        "TIPO": "A100/A170",
+                        "DOC": _get(current_a100, 6),  # NUM_DOC
+                        "DT_DOC": _get(current_a100, 7),  # DT_DOC
+                        "VL_BC_PIS": vl_bc_pis,
+                        "VL_PIS": vl_pis,
+                        "VL_BC_COFINS": vl_bc_cof,
+                        "VL_COFINS": vl_cof,
+                    }
+                )
+            current_a100 = None
             continue
 
-        # ------------ C500 / C501 / C505 (energia elétrica) ------------
+        # ------------ C500 / C501 / C505 (Energia/Comunicação) ------------
         if reg == "C500":
-            # fecha o C500 anterior, se houver
-            finalize_c500()
             current_c500 = p
             continue
 
-        if reg == "C501":
-            # Campos: 02 CST_PIS, 03 VL_ITEM, 04 NAT_BC_CRED, 05 VL_BC_PIS, 06 ALIQ_PIS, 07 VL_PIS
-            # Somamos base e valor em acumuladores numéricos
-            c500_pis_bc += _to_float(_get(p, 5))
-            c500_pis_aliq = _to_float(_get(p, 6))
-            c500_pis_val += _to_float(_get(p, 7))
+        if reg == "C501" or reg == "C505":
+            # C501/C505 são registros filhos, mas o crédito está no C500 (pai)
+            # A lógica de finalize_c500() trata o C500.
+            # Se for C501 ou C505, apenas garante que o C500 foi lido
+            if current_c500 is None:
+                continue
+            
+            # C500: 19: VL_BC_PIS, 20: VL_PIS, 21: VL_BC_COFINS, 22: VL_COFINS
+            vl_bc_pis = _get(current_c500, 19)
+            vl_pis = _get(current_c500, 20)
+            vl_bc_cof = _get(current_c500, 21)
+            vl_cof = _get(current_c500, 22)
+
+            if _to_float(vl_pis) > 0.0 or _to_float(vl_cof) > 0.0:
+                records_out.append(
+                    {
+                        "COMPETENCIA": competencia,
+                        "EMPRESA": empresa,
+                        "TIPO": "C500/C501/C505",
+                        "DOC": _get(current_c500, 13),  # NUM_DOC
+                        "DT_DOC": _get(current_c500, 14),  # DT_DOC
+                        "VL_BC_PIS": vl_bc_pis,
+                        "VL_PIS": vl_pis,
+                        "VL_BC_COFINS": vl_bc_cof,
+                        "VL_COFINS": vl_cof,
+                    }
+                )
+            current_c500 = None
             continue
 
-        if reg == "C505":
-            # Campos: 02 CST_COFINS, 03 VL_ITEM, 04 NAT_BC_CRED, 05 VL_BC_COFINS, 06 ALIQ_COFINS, 07 VL_COFINS
-            c500_cof_bc += _to_float(_get(p, 5))
-            c500_cof_aliq = _to_float(_get(p, 6))
-            c500_cof_val += _to_float(_get(p, 7))
-            continue
-
-        # ------------ D100 / D101 / D105 (CT-e / fretes) ------------
+        # ------------ D100 / D101 / D105 (Fretes) ------------
         if reg == "D100":
-            current_d100 = p  # definido dinâmico
+            current_d100 = p
             continue
 
-        if reg == "D101":
+        if reg == "D101" or reg == "D105":
             if current_d100 is None:
                 continue
-            d100 = current_d100
-
-            cod_part = _get(d100, 4)
-            num_doc = _get(d100, 8)
-            dt_doc = _get(d100, 10)
-            vl_doc = _get(d100, 12)
-
-            # D101: campos 04 = CST_PIS, 06 = VL_BC_PIS, 07 = ALIQ_PIS, 08 = VL_PIS
-            cst_pis = _get(p, 4)
-            vl_bc_pis = _get(p, 6)
-            aliq_pis = _get(p, 7)
-            vl_pis = _get(p, 8)
-
-            if _to_float(vl_pis) == 0.0 and _to_float(vl_bc_pis) == 0.0:
-                continue
-
-            records_out.append(
-                {
-                    "COMPETENCIA": competencia,
-                    "EMPRESA": empresa,
-                    "TIPO": "D100/D101",
-                    "DOC": num_doc,
-                    "DT_DOC": dt_doc,
-                    "COD_PART": cod_part,
-                    "NOME_PART": map_part_nome.get(cod_part, ""),
-                    "VL_DOC": vl_doc,
-                    "CST_PIS": cst_pis,
-                    "VL_BC_PIS": vl_bc_pis,
-                    "ALIQ_PIS": aliq_pis,
-                    "VL_PIS": vl_pis,
-                    "CST_COFINS": "",
-                    "VL_BC_COFINS": "",
-                    "ALIQ_COFINS": "",
-                    "VL_COFINS": "",
-                }
-            )
-            continue
-
-        if reg == "D105":
-            if current_d100 is None:
-                continue
-            d100 = current_d100
-
-            cod_part = _get(d100, 4)
-            num_doc = _get(d100, 8)
-            dt_doc = _get(d100, 10)
-            vl_doc = _get(d100, 12)
-
-            # D105: campos 04 = CST_COFINS, 06 = VL_BC_COFINS, 07 = ALIQ_COFINS, 08 = VL_COFINS
-            cst_cof = _get(p, 4)
-            vl_bc_cof = _get(p, 6)
-            aliq_cof = _get(p, 7)
+            
+            # D100: 12: NUM_DOC, 13: DT_DOC
+            num_doc = _get(current_d100, 12)
+            dt_doc = _get(current_d100, 13)
+            
+            # D101/D105: 4: VL_BC_PIS, 5: VL_PIS, 7: VL_BC_COFINS, 8: VL_COFINS
+            vl_bc_pis = _get(p, 4)
+            vl_pis = _get(p, 5)
+            vl_bc_cof = _get(p, 7)
             vl_cof = _get(p, 8)
 
-            if _to_float(vl_cof) == 0.0 and _to_float(vl_bc_cof) == 0.0:
-                continue
-
-            records_out.append(
-                {
-                    "COMPETENCIA": competencia,
-                    "EMPRESA": empresa,
-                    "TIPO": "D100/D105",
-                    "DOC": num_doc,
-                    "DT_DOC": dt_doc,
-                    "COD_PART": cod_part,
-                    "NOME_PART": map_part_nome.get(cod_part, ""),
-                    "VL_DOC": vl_doc,
-                    "CST_PIS": "",
-                    "VL_BC_PIS": "",
-                    "ALIQ_PIS": "",
-                    "VL_PIS": "",
-                    "CST_COFINS": cst_cof,
-                    "VL_BC_COFINS": vl_bc_cof,
-                    "ALIQ_COFINS": aliq_cof,
-                    "VL_COFINS": vl_cof,
-                }
-            )
+            if _to_float(vl_pis) > 0.0 or _to_float(vl_cof) > 0.0:
+                records_out.append(
+                    {
+                        "COMPETENCIA": competencia,
+                        "EMPRESA": empresa,
+                        "TIPO": "D100/D105", # Unificado para Fretes
+                        "DOC": num_doc,
+                        "DT_DOC": dt_doc,
+                        "VL_BC_PIS": vl_bc_pis,
+                        "VL_PIS": vl_pis,
+                        "VL_BC_COFINS": vl_bc_cof,
+                        "VL_COFINS": vl_cof,
+                    }
+                )
+            current_d100 = None
             continue
 
-        # ------------ F100 / F120 (demais documentos) ------------
+        # ------------ F100 / F120 (Outros) ------------
         if reg == "F100":
             current_f100 = p
             continue
@@ -519,54 +400,32 @@ def parse_efd_piscofins(
         if reg == "F120":
             if current_f100 is None:
                 continue
-            f100 = current_f100
+            
+            # F100: 10: NUM_DOC, 11: DT_DOC
+            num_doc = _get(current_f100, 10)
+            dt_doc = _get(current_f100, 11)
+            
+            # F120: 4: VL_BC_PIS, 5: VL_PIS, 7: VL_BC_COFINS, 8: VL_COFINS
+            vl_bc_pis = _get(p, 4)
+            vl_pis = _get(p, 5)
+            vl_bc_cof = _get(p, 7)
+            vl_cof = _get(p, 8)
 
-            cod_part = _get(f100, 3)
-            num_doc = _get(f100, 5)
-            dt_doc = _get(f100, 6)
-            vl_doc = _get(f100, 7)
-
-            # F120: campos
-            # 08 CST_PIS, 09 VL_BC_PIS, 10 ALIQ_PIS, 11 VL_PIS
-            # 12 CST_COFINS, 13 VL_BC_COFINS, 14 ALIQ_COFINS, 15 VL_COFINS
-            cst_pis = _get(p, 8)
-            vl_bc_pis = _get(p, 9)
-            aliq_pis = _get(p, 10)
-            vl_pis = _get(p, 11)
-
-            cst_cof = _get(p, 12)
-            vl_bc_cof = _get(p, 13)
-            aliq_cof = _get(p, 14)
-            vl_cof = _get(p, 15)
-
-            if (
-                _to_float(vl_pis) == 0.0
-                and _to_float(vl_cof) == 0.0
-                and _to_float(vl_bc_pis) == 0.0
-                and _to_float(vl_bc_cof) == 0.0
-            ):
-                continue
-
-            records_out.append(
-                {
-                    "COMPETENCIA": competencia,
-                    "EMPRESA": empresa,
-                    "TIPO": "F100/F120",
-                    "DOC": num_doc,
-                    "DT_DOC": dt_doc,
-                    "COD_PART": cod_part,
-                    "NOME_PART": map_part_nome.get(cod_part, ""),
-                    "VL_DOC": vl_doc,
-                    "CST_PIS": cst_pis,
-                    "VL_BC_PIS": vl_bc_pis,
-                    "ALIQ_PIS": aliq_pis,
-                    "VL_PIS": vl_pis,
-                    "CST_COFINS": cst_cof,
-                    "VL_BC_COFINS": vl_bc_cof,
-                    "ALIQ_COFINS": aliq_cof,
-                    "VL_COFINS": vl_cof,
-                }
-            )
+            if _to_float(vl_pis) > 0.0 or _to_float(vl_cof) > 0.0:
+                records_out.append(
+                    {
+                        "COMPETENCIA": competencia,
+                        "EMPRESA": empresa,
+                        "TIPO": "F100/F120",
+                        "DOC": num_doc,
+                        "DT_DOC": dt_doc,
+                        "VL_BC_PIS": vl_bc_pis,
+                        "VL_PIS": vl_pis,
+                        "VL_BC_COFINS": vl_bc_cof,
+                        "VL_COFINS": vl_cof,
+                    }
+                )
+            current_f100 = None
             continue
 
         # ------------ Bloco M – AP PIS (M200) e Créditos PIS (M105) ------------
