@@ -551,6 +551,8 @@ with st.expander("📂 Ver detalhes e remover arquivos", expanded=False):
         # Remove em ordem decrescente para não bagunçar os índices
         for idx in sorted(files_to_remove, reverse=True):
             st.session_state.files_data.pop(idx)
+        # Força a atualização da página após remover arquivos
+        st.rerun()
 
 st.markdown("<div class='divider'></div>", unsafe_allow_html=True)
 
