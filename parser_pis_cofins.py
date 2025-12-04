@@ -125,10 +125,12 @@ def parse_efd_piscofins(lines):
                         c170_data['CHV_NFE'] = c100_records[-1].get('CHV_NFE', '')
                         c170_data['NUM_DOC'] = c100_records[-1].get('NUM_DOC', '')
                         c170_data['COD_PART'] = c100_records[-1].get('COD_PART', '')
+                        c170_data['DT_DOC'] = c100_records[-1].get('DT_DOC', '') # Adicionado DT_DOC
                     else:
                         c170_data['CHV_NFE'] = ''
                         c170_data['NUM_DOC'] = ''
                         c170_data['COD_PART'] = ''
+                        c170_data['DT_DOC'] = '' # Adicionado DT_DOC
                         
                     c170_records.append(c170_data)
                 except (ValueError, IndexError):
@@ -242,7 +244,7 @@ def parse_efd_piscofins(lines):
         # Cria um DataFrame vazio com as colunas esperadas para evitar KeyError no app.py
         cols_c100_expected = [
             "NUM_ITEM", "COD_ITEM", "DESCR_ITEM", "NCM", "CFOP", "CST_PIS", "VL_BC_PIS", "ALIQ_PIS", "VL_PIS", 
-            "CST_COFINS", "VL_BC_COFINS", "ALIQ_COFINS", "VL_COFINS", "NOME_PART", "CHV_NFE", "NUM_DOC", "COD_PART"
+            "CST_COFINS", "VL_BC_COFINS", "ALIQ_COFINS", "VL_COFINS", "NOME_PART", "CHV_NFE", "NUM_DOC", "COD_PART", "DT_DOC" # Adicionado DT_DOC
         ]
         df_c100_cred = pd.DataFrame(columns=cols_c100_expected)
         df_c100_cred['COMPETENCIA'] = competencia
