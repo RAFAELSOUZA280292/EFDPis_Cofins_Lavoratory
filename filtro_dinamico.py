@@ -155,16 +155,11 @@ def criar_busca_rapida(dataframes: Dict[str, pd.DataFrame]) -> None:
     # Busca por NCM
     with col2:
         st.markdown("**📦 NCM**")
-        if not dataframes["df_c100_cred"].empty:
-            ncms_disponiveis = sorted(dataframes["df_c100_cred"]["NCM"].unique())
-            ncm = st.selectbox("Selecione o NCM:", ncms_disponiveis, key="busca_ncm")
-            
-            if ncm:
-                resultado = dataframes["df_c100_cred"][dataframes["df_c100_cred"]["NCM"] == ncm]
-                st.success(f"✓ {len(resultado)} item(ns) encontrado(s)")
-                with st.expander("Ver detalhes"):
-                    st.dataframe(resultado[["NCM", "DESCR_ITEM", "NOME_PART", "VL_PIS", "VL_COFINS"]], use_container_width=True)
-    
+        if not dataframes["df_c100_cred"].emp    # A busca por NCM foi removida temporariamente para corrigir o KeyError.
+    # A coluna NCM não está sendo populada corretamente pelo parser atual.
+    with col2:
+        st.markdown("**🔢 Busca por NCM (Desativada)**")
+        st.info("A busca por NCM está temporariamente desativada.")    
     # Busca por Fornecedor
     with col3:
         st.markdown("**🏢 Fornecedor**")
