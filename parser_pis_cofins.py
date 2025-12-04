@@ -368,10 +368,10 @@ def parse_efd_piscofins(
             num_doc = _get(current_d100, 12)
             dt_doc = _get(current_d100, 13)
             
-            # D101: [6]: Base, [7]: PIS, [8]: (?)
-            # D105: [6]: Base, [7]: (alíquota?), [8]: COFINS
+            # D101: [6]: Base, [7]: Alíquota PIS, [8]: Valor PIS
+            # D105: [6]: Base, [7]: Alíquota COFINS, [8]: Valor COFINS
             vl_bc_pis = _get(current_d101, 6) if current_d101 else _get(p, 6)
-            vl_pis = _get(current_d101, 7) if current_d101 else "0"
+            vl_pis = _get(current_d101, 8) if current_d101 else "0"
             vl_bc_cof = _get(p, 6)
             vl_cof = _get(p, 8)
 
