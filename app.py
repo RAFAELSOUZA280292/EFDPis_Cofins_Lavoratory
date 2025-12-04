@@ -23,7 +23,7 @@ import streamlit as st
 from exportar_pdf import exportar_dashboard_pdf
 
 # Importa o parser corrigido e a função de carregamento
-from parser_pis_cofins import parse_efd_piscofins, load_efd_from_upload
+from parser_pis_cofins import parse_efd_piscofins
 from filtro_dinamico import criar_filtro_dinamico, criar_busca_rapida
 from css_melhorado import aplicar_css
 
@@ -262,6 +262,38 @@ st.markdown(
 # =============================================================================
 # FUNÇÕES AUXILIARES
 # =============================================================================
+
+def _decode_bytes(raw: bytes) -> str:
+    """Tenta decodificar bytes em string usando latin-1 e depois utf-8."""
+    try:
+        return raw.decode("latin-1")
+    except UnicodeDecodeError:
+        return raw.decode("utf-8")
+
+def _extract_txt_from_zip(raw: bytes) -> str:
+    """Extrai o conteúdo do primeiro arquivo .txt dentro de um zip."""
+    with zipfile.ZipFile(io.BytesIO(raw)) as z:
+        for name in z.namelist():
+            if name.lower().endswith(".txt"):
+                with z.open(name) as f:
+                    return _decode_bytes(f.read())
+    return ""
+
+def load_efd_from_upload(uploaded_file) -> List[str]:
+    """
+    Recebe um UploadedFile do Streamlit (txt ou zip) e devolve
+    uma lista de linhas do SPED.
+    """
+    raw = uploaded_file.read()
+    name = uploaded_file.name.lower()
+
+    if name.endswith(".zip"):
+        text = _extract_txt_from_zip(raw)
+    else:
+        text = _decode_bytes(raw)
+
+    # divide em linhas, removendo vazios extremos
+    return [ln for ln in text.splitlines() if ln.strip()]
 
 
 def to_float(value) -> float:
