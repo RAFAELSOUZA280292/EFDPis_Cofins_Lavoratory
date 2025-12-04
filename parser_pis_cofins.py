@@ -96,22 +96,24 @@ def parse_efd_piscofins(lines):
         
         # C170 - Item de Entrada
         elif record_type == 'C170':
-            if len(parts) >= 28:
+            # O registro C170 tem 37 campos (índice 0 a 36).
+            # Os campos de PIS/COFINS começam no índice 25 (CST_PIS)
+            if len(parts) >= 37:
                 try:
                     c170_records.append({
                         'NUM_ITEM': parts[2],
                         'COD_ITEM': parts[3],
                         'DESCR_ITEM': parts[4],
-                        'NCM': parts[5],
-                        'CFOP': parts[6],
-                        'CST_PIS': parts[7],
-                        'VL_BC_PIS': float(parts[8].replace(',', '.')) if parts[8] else 0,
-                        'ALIQ_PIS': float(parts[9].replace(',', '.')) if parts[9] else 0,
-                        'VL_PIS': float(parts[10].replace(',', '.')) if parts[10] else 0,
-                        'CST_COFINS': parts[11],
-                        'VL_BC_COFINS': float(parts[12].replace(',', '.')) if parts[12] else 0,
-                        'ALIQ_COFINS': float(parts[13].replace(',', '.')) if parts[13] else 0,
-                        'VL_COFINS': float(parts[14].replace(',', '.')) if parts[14] else 0,
+                        'NCM': parts[5], # NCM não existe no C170, mas o parser antigo tinha. Vamos manter a estrutura do SPED.
+                        'CFOP': parts[11], # CFOP é o campo 11
+                        'CST_PIS': parts[25], # Campo 25
+                        'VL_BC_PIS': float(parts[26].replace(',', '.')) if parts[26] else 0, # Campo 26
+                        'ALIQ_PIS': float(parts[27].replace(',', '.')) if parts[27] else 0, # Campo 27
+                        'VL_PIS': float(parts[30].replace(',', '.')) if parts[30] else 0, # Campo 30
+                        'CST_COFINS': parts[31], # Campo 31
+                        'VL_BC_COFINS': float(parts[32].replace(',', '.')) if parts[32] else 0, # Campo 32
+                        'ALIQ_COFINS': float(parts[33].replace(',', '.')) if parts[33] else 0, # Campo 33
+                        'VL_COFINS': float(parts[36].replace(',', '.')) if parts[36] else 0, # Campo 36
                     })
                 except (ValueError, IndexError):
                     pass
