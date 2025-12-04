@@ -24,6 +24,7 @@ import streamlit as st
 # Importa o parser corrigido e a função de carregamento
 from parser_pis_cofins import parse_efd_piscofins, load_efd_from_upload
 from filtro_dinamico import criar_filtro_dinamico, criar_busca_rapida
+from css_melhorado import aplicar_css
 
 
 # =============================================================================
