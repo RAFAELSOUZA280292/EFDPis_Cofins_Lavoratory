@@ -129,6 +129,56 @@ def aplicar_filtro(df: pd.DataFrame, campo: str, operador: str, valor: Any, tipo
     
     return df
 
+
+
+def criar_busca_rapida(dataframes: Dict[str, pd.DataFrame]) -> None:
+    """Cria interface de busca rápida por Chave, NCM ou Fornecedor."""
+    
+    st.markdown("<h3 class='subsection-title'>⚡ Busca Rápida</h3>", unsafe_allow_html=True)
+    
+    col1, col2, col3 = st.columns(3)
+    
+    # Busca por Chave de Acesso
+    with col1:
+        st.markdown("**🔑 Chave de Acesso**")
+        chave = st.text_input("Digite a chave:", key="busca_chave", placeholder="Ex: 12092025")
+        
+        if chave and not dataframes["df_c100_cred"].empty:
+            resultado = dataframes["df_c100_cred"][dataframes["df_c100_cred"]["CHV_NFE"].astype(str).str.contains(chave, case=False, na=False)]
+            if not resultado.empty:
+                st.success(f"✓ {len(resultado)} nota(s) encontrada(s)")
+                with st.expander("Ver detalhes"):
+                    st.dataframe(resultado[["CHV_NFE", "NOME_PART", "NUM_DOC", "VL_PIS", "VL_COFINS"]], use_container_width=True)
+            else:
+                st.warning("Nenhuma nota encontrada com essa chave")
+    
+    # Busca por NCM
+    with col2:
+        st.markdown("**📦 NCM**")
+        if not dataframes["df_c100_cred"].empty:
+            ncms_disponiveis = sorted(dataframes["df_c100_cred"]["NCM"].unique())
+            ncm = st.selectbox("Selecione o NCM:", ncms_disponiveis, key="busca_ncm")
+            
+            if ncm:
+                resultado = dataframes["df_c100_cred"][dataframes["df_c100_cred"]["NCM"] == ncm]
+                st.success(f"✓ {len(resultado)} item(ns) encontrado(s)")
+                with st.expander("Ver detalhes"):
+                    st.dataframe(resultado[["NCM", "DESCR_ITEM", "NOME_PART", "VL_PIS", "VL_COFINS"]], use_container_width=True)
+    
+    # Busca por Fornecedor
+    with col3:
+        st.markdown("**🏢 Fornecedor**")
+        if not dataframes["df_c100_cred"].empty:
+            fornecedores_disponiveis = sorted(dataframes["df_c100_cred"]["NOME_PART"].unique())
+            fornecedor = st.selectbox("Selecione o fornecedor:", fornecedores_disponiveis, key="busca_fornecedor")
+            
+            if fornecedor:
+                resultado = dataframes["df_c100_cred"][dataframes["df_c100_cred"]["NOME_PART"] == fornecedor]
+                st.success(f"✓ {len(resultado)} nota(s) encontrada(s)")
+                with st.expander("Ver detalhes"):
+                    st.dataframe(resultado[["NOME_PART", "CHV_NFE", "NUM_DOC", "VL_PIS", "VL_COFINS"]], use_container_width=True)
+
+
 def criar_filtro_dinamico(dataframes: Dict[str, pd.DataFrame]) -> pd.DataFrame:
     """Cria interface de filtro dinâmico e retorna dataframe filtrado."""
     
