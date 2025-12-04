@@ -283,5 +283,6 @@ def parse_efd_piscofins(lines):
         if col in df_out.columns:
             df_out[col] = pd.to_numeric(df_out[col], errors='coerce').fillna(0)
     
-    return df_c100_cred, df_out, None, None, competencia, empresa
+    # Retorna DataFrames vazios para df_ap e df_cred para evitar ValueError no pd.concat do app.py
+    return df_c100_cred, df_out, pd.DataFrame(), pd.DataFrame(), competencia, empresa
 
