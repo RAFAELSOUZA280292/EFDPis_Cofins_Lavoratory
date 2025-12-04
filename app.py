@@ -23,6 +23,7 @@ import streamlit as st
 
 # Importa o parser corrigido e a função de carregamento
 from parser_pis_cofins import parse_efd_piscofins, load_efd_from_upload
+from filtro_dinamico import criar_filtro_dinamico
 
 
 # =============================================================================
@@ -835,6 +836,20 @@ with tab_exec:
 
 with tab_docs:
     st.markdown("<h2 class='section-title'>📋 Detalhamento Técnico</h2>", unsafe_allow_html=True)
+    
+    # Filtro Dinâmico Avançado
+    st.markdown("<div class='divider'></div>", unsafe_allow_html=True)
+    
+    # Preparar dicionário de dataframes para o filtro
+    dataframes_filtro = {
+        "df_c100_cred": df_c100_cred,
+        "df_outros_cred": df_outros_cred,
+        "df_cfop_summary": df_cfop_summary if not df_cfop_summary.empty else pd.DataFrame(),
+    }
+    
+    criar_filtro_dinamico(dataframes_filtro)
+    
+    st.markdown("<div class='divider'></div>", unsafe_allow_html=True)
 
     # NF-e de Entrada (C100/C170)
     st.markdown("<h3 class='subsection-title'>NF-e de Entrada (C100/C170) - Análise Detalhada</h3>", unsafe_allow_html=True)
