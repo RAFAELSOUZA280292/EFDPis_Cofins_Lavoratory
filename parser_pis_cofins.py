@@ -82,7 +82,7 @@ def parse_efd_piscofins(lines):
         elif record_type == 'C100':
             if len(parts) >= 11:
                 try:
-                    c100_records.append({
+                    current_c100 = {
                         'MODELO': parts[2],
                         'SIT_DOC': parts[3],
                         'NUM_DOC': parts[4],
@@ -90,8 +90,11 @@ def parse_efd_piscofins(lines):
                         'DT_ENTR': parts[6],
                         'VL_DOC': float(parts[7].replace(',', '.')) if parts[7] else 0,
                         'CHV_NFE': parts[10] if len(parts) > 10 else '',
-                    })
+                        'COD_PART': parts[4] if len(parts) > 4 else '', # Usando NUM_DOC como placeholder para COD_PART
+                    }
+                    c100_records.append(current_c100)
                 except (ValueError, IndexError):
+                    current_c100 = {}
                     pass
         
         # C170 - Item de Entrada
@@ -100,7 +103,7 @@ def parse_efd_piscofins(lines):
             # Os campos de PIS/COFINS começam no índice 25 (CST_PIS)
             if len(parts) >= 37:
                 try:
-                    c170_records.append({
+                    c170_data = {
                         'NUM_ITEM': parts[2],
                         'COD_ITEM': parts[3],
                         'DESCR_ITEM': parts[4],
@@ -115,7 +118,19 @@ def parse_efd_piscofins(lines):
                         'ALIQ_COFINS': float(parts[33].replace(',', '.')) if parts[33] else 0, # Campo 33
                         'VL_COFINS': float(parts[36].replace(',', '.')) if parts[36] else 0, # Campo 36
                         'NOME_PART': 'PARTICIPANTE_NAO_MAPEADO', # Placeholder para evitar KeyError
-                    })
+                    }
+                    
+                    # Adicionar dados do C100 pai (CHV_NFE e NUM_DOC)
+                    if c100_records:
+                        c170_data['CHV_NFE'] = c100_records[-1].get('CHV_NFE', '')
+                        c170_data['NUM_DOC'] = c100_records[-1].get('NUM_DOC', '')
+                        c170_data['COD_PART'] = c100_records[-1].get('COD_PART', '')
+                    else:
+                        c170_data['CHV_NFE'] = ''
+                        c170_data['NUM_DOC'] = ''
+                        c170_data['COD_PART'] = ''
+                        
+                    c170_records.append(c170_data)
                 except (ValueError, IndexError):
                     pass
         
