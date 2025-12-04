@@ -965,7 +965,7 @@ with tab_charts:
 
         # Gráfico 3: Top 10 NCM/Produtos com Maior Crédito
         st.markdown("<h3 class='subsection-title'>Top 10 NCM/Produtos com Maior Crédito</h3>", unsafe_allow_html=True)
-               if not df_c100_cred.empty:
+        if not df_c100_cred.empty:
             df_ncm_top = df_c100_cred.groupby("NCM", as_index=False)[["VL_PIS", "VL_COFINS"]].sum()
             df_ncm_top["TOTAL"] = df_ncm_top["VL_PIS"] + df_ncm_top["VL_COFINS"]
             df_ncm_top = df_ncm_top.nlargest(10, "TOTAL")
