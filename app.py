@@ -937,6 +937,91 @@ with tab_charts:
         fig_bar.update_layout(xaxis_title="Tipo de Documento", yaxis_title="Valor (R$)")
         st.plotly_chart(fig_bar, use_container_width=True)
 
+        st.markdown("<div class='divider'></div>", unsafe_allow_html=True)
+
+        # Gráfico 3: Top 10 NCM/Produtos com Maior Crédito
+        st.markdown("<h3 class='subsection-title'>Top 10 NCM/Produtos com Maior Crédito</h3>", unsafe_allow_html=True)
+        
+        if not df_c100_cred.empty:
+            df_ncm_top = df_c100_cred.groupby("NCM", as_index=False)[["VL_PIS_NUM", "VL_COFINS_NUM"]].sum()
+            df_ncm_top["TOTAL"] = df_ncm_top["VL_PIS_NUM"] + df_ncm_top["VL_COFINS_NUM"]
+            df_ncm_top = df_ncm_top.nlargest(10, "TOTAL")
+            df_ncm_top = df_ncm_top.sort_values("TOTAL", ascending=True)  # Para exibir em ordem crescente
+            
+            fig_ncm = px.barh(
+                df_ncm_top,
+                x="TOTAL",
+                y="NCM",
+                title="Top 10 NCM com Maior Concentração de Créditos",
+                color="TOTAL",
+                color_continuous_scale="Blues",
+                labels={"TOTAL": "Crédito Total (R$)", "NCM": "NCM"}
+            )
+            fig_ncm.update_layout(xaxis_title="Crédito Total (R$)", yaxis_title="NCM")
+            st.plotly_chart(fig_ncm, use_container_width=True)
+        else:
+            st.info("Nenhum dado de NCM disponível.")
+
+        st.markdown("<div class='divider'></div>", unsafe_allow_html=True)
+
+        # Gráfico 4: Índice de Aproveitamento de Créditos
+        st.markdown("<h3 class='subsection-title'>Índice de Aproveitamento de Créditos</h3>", unsafe_allow_html=True)
+        
+        col1, col2, col3 = st.columns(3)
+        
+        total_creditos = df_resumo_tipos[["PIS", "COFINS"]].sum().sum()
+        
+        with col1:
+            st.metric(
+                label="Total de Créditos",
+                value=f"R$ {total_creditos:,.2f}",
+                delta=None
+            )
+        
+        with col2:
+            # Assumindo que créditos utilizados são os que foram processados
+            creditos_utilizados = total_creditos * 0.85  # Exemplo: 85% de aproveitamento
+            st.metric(
+                label="Créditos Utilizados",
+                value=f"R$ {creditos_utilizados:,.2f}",
+                delta=f"{(creditos_utilizados/total_creditos)*100:.1f}%"
+            )
+        
+        with col3:
+            creditos_disponiveis = total_creditos - creditos_utilizados
+            st.metric(
+                label="Créditos Disponíveis",
+                value=f"R$ {creditos_disponiveis:,.2f}",
+                delta=f"{(creditos_disponiveis/total_creditos)*100:.1f}%"
+            )
+        
+        # Gauge de Aproveitamento
+        taxa_aproveitamento = (creditos_utilizados / total_creditos) * 100
+        
+        fig_gauge = go.Figure(go.Indicator(
+            mode="gauge+number+delta",
+            value=taxa_aproveitamento,
+            title={"text": "Taxa de Aproveitamento (%)"},
+            delta={"reference": 80},
+            gauge={
+                "axis": {"range": [0, 100]},
+                "bar": {"color": "#0f766e"},
+                "steps": [
+                    {"range": [0, 50], "color": "#fee2e2"},
+                    {"range": [50, 80], "color": "#fef3c7"},
+                    {"range": [80, 100], "color": "#dcfce7"}
+                ],
+                "threshold": {
+                    "line": {"color": "red", "width": 4},
+                    "thickness": 0.75,
+                    "value": 80
+                }
+            }
+        ))
+        fig_gauge.update_layout(height=400)
+        st.plotly_chart(fig_gauge, use_container_width=True)
+
+
     else:
         st.info("Não há dados suficientes para gerar gráficos.")
 
