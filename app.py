@@ -20,6 +20,7 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
+from exportar_pdf import exportar_dashboard_pdf
 
 # Importa o parser corrigido e a função de carregamento
 from parser_pis_cofins import parse_efd_piscofins, load_efd_from_upload
