@@ -322,25 +322,25 @@ def resumo_tipo(df_outros: pd.DataFrame, tipos: List[str], label: str) -> pd.Dat
 
     df["VL_BC_PIS_NUM"] = df["VL_BC_PIS"].apply(to_float)
     df["VL_BC_COFINS_NUM"] = df["VL_BC_COFINS"].apply(to_float)
-    df["VL_PIS_NUM"] = df["VL_PIS"].apply(to_float)
-    df["VL_COFINS_NUM"] = df["VL_COFINS"].apply(to_float)
+    df["VL_PIS"] = df["VL_PIS"].apply(to_float)
+    df["VL_COFINS"] = df["VL_COFINS"].apply(to_float)
 
     # Apenas documentos com crédito real (PIS ou COFINS > 0)
-    df = df[(df["VL_PIS_NUM"] > 0) | (df["VL_COFINS_NUM"] > 0)]
+    df = df[(df["VL_PIS"] > 0) | (df["VL_COFINS"] > 0)]
     if df.empty:
         return pd.DataFrame(columns=cols)
 
     grouped = (
         df.groupby(["COMPETENCIA", "EMPRESA"], as_index=False)[
-            ["VL_BC_PIS_NUM", "VL_BC_COFINS_NUM", "VL_PIS_NUM", "VL_COFINS_NUM"]
+            ["VL_BC_PIS_NUM", "VL_BC_COFINS_NUM", "VL_PIS", "VL_COFINS"]
         ]
         .sum()
         .rename(
             columns={
                 "VL_BC_PIS_NUM": "BASE_PIS",
                 "VL_BC_COFINS_NUM": "BASE_COFINS",
-                "VL_PIS_NUM": "PIS",
-                "VL_COFINS_NUM": "COFINS",
+                "VL_PIS": "PIS",
+                "VL_COFINS": "COFINS",
             }
         )
     )
@@ -380,13 +380,13 @@ def resumo_cfop_mapeado(df_c100: pd.DataFrame) -> pd.DataFrame:
         return pd.DataFrame(columns=cols)
 
     df = df_c100.copy()
-    df["VL_PIS_NUM"] = df["VL_PIS"].apply(to_float)
-    df["VL_COFINS_NUM"] = df["VL_COFINS"].apply(to_float)
+    df["VL_PIS"] = df["VL_PIS"].apply(to_float)
+    df["VL_COFINS"] = df["VL_COFINS"].apply(to_float)
     df["VL_BC_PIS_NUM"] = df["VL_BC_PIS"].apply(to_float)
     df["VL_BC_COFINS_NUM"] = df["VL_BC_COFINS"].apply(to_float)
 
     # Apenas documentos com crédito real (PIS ou COFINS > 0)
-    df = df[(df["VL_PIS_NUM"] > 0) | (df["VL_COFINS_NUM"] > 0)]
+    df = df[(df["VL_PIS"] > 0) | (df["VL_COFINS"] > 0)]
     if df.empty:
         return pd.DataFrame(columns=cols)
 
@@ -395,15 +395,15 @@ def resumo_cfop_mapeado(df_c100: pd.DataFrame) -> pd.DataFrame:
 
     grouped = (
         df.groupby(["COMPETENCIA", "EMPRESA", "GRUPO"], as_index=False)[
-            ["VL_BC_PIS_NUM", "VL_BC_COFINS_NUM", "VL_PIS_NUM", "VL_COFINS_NUM"]
+            ["VL_BC_PIS_NUM", "VL_BC_COFINS_NUM", "VL_PIS", "VL_COFINS"]
         ]
         .sum()
         .rename(
             columns={
                 "VL_BC_PIS_NUM": "BASE_PIS",
                 "VL_BC_COFINS_NUM": "BASE_COFINS",
-                "VL_PIS_NUM": "PIS",
-                "VL_COFINS_NUM": "COFINS",
+                "VL_PIS": "PIS",
+                "VL_COFINS": "COFINS",
             }
         )
     )
@@ -617,14 +617,14 @@ df_cred = pd.concat(dfs_cred, ignore_index=True) if dfs_cred else pd.DataFrame()
 if not df_c100.empty:
     df_c100["VL_BC_PIS_NUM"] = df_c100["VL_BC_PIS"].apply(to_float)
     df_c100["VL_BC_COFINS_NUM"] = df_c100["VL_BC_COFINS"].apply(to_float)
-    df_c100["VL_PIS_NUM"] = df_c100["VL_PIS"].apply(to_float)
-    df_c100["VL_COFINS_NUM"] = df_c100["VL_COFINS"].apply(to_float)
+    df_c100["VL_PIS"] = df_c100["VL_PIS"].apply(to_float)
+    df_c100["VL_COFINS"] = df_c100["VL_COFINS"].apply(to_float)
 
 if not df_outros.empty:
     df_outros["VL_BC_PIS_NUM"] = df_outros["VL_BC_PIS"].apply(to_float)
     df_outros["VL_BC_COFINS_NUM"] = df_outros["VL_BC_COFINS"].apply(to_float)
-    df_outros["VL_PIS_NUM"] = df_outros["VL_PIS"].apply(to_float)
-    df_outros["VL_COFINS_NUM"] = df_outros["VL_COFINS"].apply(to_float)
+    df_outros["VL_PIS"] = df_outros["VL_PIS"].apply(to_float)
+    df_outros["VL_COFINS"] = df_outros["VL_COFINS"].apply(to_float)
 
 # =============================================================================
 # CÁLCULO DE TOTAIS E RESUMOS
@@ -636,18 +636,18 @@ total_base_pis = 0.0
 total_base_cofins = 0.0
 
 # Filtra documentos com crédito real para cálculo de totais
-df_c100_cred = df_c100[(df_c100["VL_PIS_NUM"] > 0) | (df_c100["VL_COFINS_NUM"] > 0)]
-df_outros_cred = df_outros[(df_outros["VL_PIS_NUM"] > 0) | (df_outros["VL_COFINS_NUM"] > 0)]
+df_c100_cred = df_c100[(df_c100["VL_PIS"] > 0) | (df_c100["VL_COFINS"] > 0)]
+df_outros_cred = df_outros[(df_outros["VL_PIS"] > 0) | (df_outros["VL_COFINS"] > 0)]
 
 if not df_c100_cred.empty:
-    total_pis += df_c100_cred["VL_PIS_NUM"].sum()
-    total_cofins += df_c100_cred["VL_COFINS_NUM"].sum()
+    total_pis += df_c100_cred["VL_PIS"].sum()
+    total_cofins += df_c100_cred["VL_COFINS"].sum()
     total_base_pis += df_c100_cred["VL_BC_PIS_NUM"].sum()
     total_base_cofins += df_c100_cred["VL_BC_COFINS_NUM"].sum()
 
 if not df_outros_cred.empty:
-    total_pis += df_outros_cred["VL_PIS_NUM"].sum()
-    total_cofins += df_outros_cred["VL_COFINS_NUM"].sum()
+    total_pis += df_outros_cred["VL_PIS"].sum()
+    total_cofins += df_outros_cred["VL_COFINS"].sum()
     total_base_pis += df_outros_cred["VL_BC_PIS_NUM"].sum()
     total_base_cofins += df_outros_cred["VL_BC_COFINS_NUM"].sum()
 
@@ -669,15 +669,15 @@ df_resumo_tipos = pd.concat(
 if not df_c100.empty:
     df_cfop_summary = (
         df_c100_cred.groupby(["COMPETENCIA", "EMPRESA", "CFOP"], as_index=False)[
-            ["VL_BC_PIS_NUM", "VL_BC_COFINS_NUM", "VL_PIS_NUM", "VL_COFINS_NUM"]
+            ["VL_BC_PIS_NUM", "VL_BC_COFINS_NUM", "VL_PIS", "VL_COFINS"]
         ]
         .sum()
         .rename(
             columns={
                 "VL_BC_PIS_NUM": "BASE_PIS",
                 "VL_BC_COFINS_NUM": "BASE_COFINS",
-                "VL_PIS_NUM": "PIS",
-                "VL_COFINS_NUM": "COFINS",
+                "VL_PIS": "PIS",
+                "VL_COFINS": "COFINS",
             }
         )
     )
@@ -782,8 +782,8 @@ with tab_exec:
         df_ncm_ranking = (
             df_c100_cred.groupby("NCM", as_index=False)
             .agg(
-                Total_PIS=("VL_PIS_NUM", "sum"),
-                Total_COFINS=("VL_COFINS_NUM", "sum"),
+                Total_PIS=("VL_PIS", "sum"),
+                Total_COFINS=("VL_COFINS", "sum"),
                 Produtos=("DESCR_ITEM", lambda x: ", ".join(x.unique()[:5])) # Top 5 produtos
             )
         )
@@ -812,8 +812,8 @@ with tab_exec:
         df_prod_ranking = (
             df_c100_cred.groupby(["COD_ITEM", "DESCR_ITEM", "NCM"], as_index=False)
             .agg(
-                Total_PIS=("VL_PIS_NUM", "sum"),
-                Total_COFINS=("VL_COFINS_NUM", "sum"),
+                Total_PIS=("VL_PIS", "sum"),
+                Total_COFINS=("VL_COFINS", "sum"),
             )
         )
         # Calcula o total de créditos por produto
@@ -943,8 +943,8 @@ with tab_charts:
         st.markdown("<h3 class='subsection-title'>Top 10 NCM/Produtos com Maior Crédito</h3>", unsafe_allow_html=True)
         
         if not df_c100_cred.empty:
-            df_ncm_top = df_c100_cred.groupby("NCM", as_index=False)[["VL_PIS_NUM", "VL_COFINS_NUM"]].sum()
-            df_ncm_top["TOTAL"] = df_ncm_top["VL_PIS_NUM"] + df_ncm_top["VL_COFINS_NUM"]
+            df_ncm_top = df_c100_cred.groupby("NCM", as_index=False)[["VL_PIS", "VL_COFINS"]].sum()
+            df_ncm_top["TOTAL"] = df_ncm_top["VL_PIS"] + df_ncm_top["VL_COFINS"]
             df_ncm_top = df_ncm_top.nlargest(10, "TOTAL")
             df_ncm_top = df_ncm_top.sort_values("TOTAL", ascending=True)  # Para exibir em ordem crescente
             
@@ -969,7 +969,12 @@ with tab_charts:
         
         col1, col2, col3 = st.columns(3)
         
-        total_creditos = df_resumo_tipos[["PIS", "COFINS"]].sum().sum()
+        # Converter valores para float
+        df_resumo_tipos_numeric = df_resumo_tipos.copy()
+        df_resumo_tipos_numeric["PIS"] = df_resumo_tipos_numeric["PIS"].apply(lambda x: float(str(x).replace(',', '.')))
+        df_resumo_tipos_numeric["COFINS"] = df_resumo_tipos_numeric["COFINS"].apply(lambda x: float(str(x).replace(',', '.')))
+        
+        total_creditos = df_resumo_tipos_numeric[["PIS", "COFINS"]].sum().sum()
         
         with col1:
             st.metric(
