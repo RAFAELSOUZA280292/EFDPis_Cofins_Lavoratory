@@ -969,12 +969,9 @@ with tab_charts:
         
         col1, col2, col3 = st.columns(3)
         
-        # Converter valores para float
-        df_resumo_tipos_numeric = df_resumo_tipos.copy()
-        df_resumo_tipos_numeric["PIS"] = df_resumo_tipos_numeric["PIS"].apply(lambda x: float(str(x).replace(',', '.')))
-        df_resumo_tipos_numeric["COFINS"] = df_resumo_tipos_numeric["COFINS"].apply(lambda x: float(str(x).replace(',', '.')))
-        
-        total_creditos = df_resumo_tipos_numeric[["PIS", "COFINS"]].sum().sum()
+        # Calcular total de créditos a partir de df_resumo_tipos
+        # df_resumo_tipos já está consolidado com valores numéricos
+        total_creditos = df_resumo_tipos[["PIS", "COFINS"]].sum().sum()
         
         with col1:
             st.metric(
