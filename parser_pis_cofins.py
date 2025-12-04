@@ -239,7 +239,14 @@ def parse_efd_piscofins(lines):
         df_c100_cred['COMPETENCIA'] = competencia
         df_c100_cred['EMPRESA'] = empresa
     else:
-        df_c100_cred = pd.DataFrame()
+        # Cria um DataFrame vazio com as colunas esperadas para evitar KeyError no app.py
+        cols_c100_expected = [
+            "NUM_ITEM", "COD_ITEM", "DESCR_ITEM", "NCM", "CFOP", "CST_PIS", "VL_BC_PIS", "ALIQ_PIS", "VL_PIS", 
+            "CST_COFINS", "VL_BC_COFINS", "ALIQ_COFINS", "VL_COFINS", "NOME_PART", "CHV_NFE", "NUM_DOC", "COD_PART"
+        ]
+        df_c100_cred = pd.DataFrame(columns=cols_c100_expected)
+        df_c100_cred['COMPETENCIA'] = competencia
+        df_c100_cred['EMPRESA'] = empresa
     
     # Consolidate A100/A170
     df_a100 = pd.DataFrame(a100_records) if a100_records else pd.DataFrame()
