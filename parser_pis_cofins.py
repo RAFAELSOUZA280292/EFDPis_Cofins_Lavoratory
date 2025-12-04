@@ -1,5 +1,48 @@
 import pandas as pd
 from io import StringIO
+from typing import List, Tuple, Dict
+import zipfile
+import io
+
+# Funções auxiliares de decodificação e extração de arquivos
+def _decode_bytes(raw: bytes) -> str:
+    """Tenta decodificar bytes em string usando latin-1 e depois utf-8."""
+    try:
+        return raw.decode("latin-1")
+    except UnicodeDecodeError:
+        return raw.decode("utf-8")
+
+def _extract_txt_from_zip(raw: bytes) -> str:
+    """Extrai o conteúdo do primeiro arquivo .txt dentro de um zip."""
+    with zipfile.ZipFile(io.BytesIO(raw)) as z:
+        for name in z.namelist():
+            if name.lower().endswith(".txt"):
+                with z.open(name) as f:
+                    return _decode_bytes(f.read())
+    return ""
+
+def load_efd_from_upload(uploaded_file) -> List[str]:
+    """
+    Recebe um UploadedFile do Streamlit (txt ou zip) e devolve
+    uma lista de linhas do SPED.
+    """
+    raw = uploaded_file.read()
+    name = uploaded_file.name.lower()
+
+    if name.endswith(".zip"):
+        text = _extract_txt_from_zip(raw)
+    else:
+        text = _decode_bytes(raw)
+
+    # divide em linhas, removendo vazios extremos
+    return [ln for ln in text.splitlines() if ln.strip()]
+
+# Função auxiliar para evitar IndexError (usada no parser antigo, mas não no novo)
+# Mantendo para compatibilidade futura, se necessário.
+def _get(parts: List[str], index: int) -> str:
+    """Retorna o elemento da lista se o índice for válido, senão string vazia."""
+    return parts[index] if index < len(parts) else ""
+
 
 def parse_efd_piscofins(lines):
     """Parse EFD PIS/COFINS file and extract data"""
