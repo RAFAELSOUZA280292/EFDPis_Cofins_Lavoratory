@@ -472,4 +472,13 @@ def parse_efd_piscofins(
     df_ap_pis = pd.DataFrame(records_ap_pis)
     df_cred_pis = pd.DataFrame(records_cred_pis)
 
+    # Converter colunas numéricas para float
+    numeric_cols = ['VL_PIS', 'VL_COFINS', 'VL_BC_PIS', 'VL_BC_COFINS', 'ALIQ_PIS', 'ALIQ_COFINS', 'VL_DOC']
+    
+    for col in numeric_cols:
+        if col in df_c100.columns:
+            df_c100[col] = pd.to_numeric(df_c100[col], errors='coerce').fillna(0.0)
+        if col in df_outros.columns:
+            df_outros[col] = pd.to_numeric(df_outros[col], errors='coerce').fillna(0.0)
+
     return df_c100, df_outros, df_ap_pis, df_cred_pis, competencia, empresa
