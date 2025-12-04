@@ -965,32 +965,36 @@ with tab_charts:
 
         # Gráfico 3: Top 10 NCM/Produtos com Maior Crédito
         st.markdown("<h3 class='subsection-title'>Top 10 NCM/Produtos com Maior Crédito</h3>", unsafe_allow_html=True)
+        
         if not df_c100_cred.empty:
-            df_ncm_top = df_c100_cred.groupby("NCM", as_index=False)[["VL_PIS", "VL_COFINS"]].sum()
-            df_ncm_top["TOTAL"] = df_ncm_top["VL_PIS"] + df_ncm_top["VL_COFINS"]
-            df_ncm_top = df_ncm_top.nlargest(10, "TOTAL")
-            df_ncm_top = df_ncm_top.sort_values("TOTAL", ascending=True)  # Para exibir em ordem crescente
-            
-            if not df_ncm_top.empty:
-                fig_ncm = px.barh(
-                    df_ncm_top,
-                    x="TOTAL",
-                    y="NCM",
-                    title="Top 10 NCM com Maior Concentração de Créditos",
-                    color="TOTAL",
-                    color_continuous_scale=px.colors.sequential.Teal,
-                    labels={"TOTAL": "Valor Total (R$)", "NCM": "NCM"},
-                    template="plotly_white",
-                )
-                fig_ncm.update_layout(
-                    xaxis_title="Valor Total (R$)",
-                    yaxis_title="NCM",
-                    showlegend=False,
-                    margin=dict(l=10, r=10, t=40, b=10),
-                )
-                st.plotly_chart(fig_ncm, use_container_width=True)
-            else:
-                st.info("Nenhum NCM com crédito encontrado para gerar o gráfico.")
+            try:
+                df_ncm_top = df_c100_cred.groupby("NCM", as_index=False)[["VL_PIS", "VL_COFINS"]].sum()
+                df_ncm_top["TOTAL"] = df_ncm_top["VL_PIS"] + df_ncm_top["VL_COFINS"]
+                df_ncm_top = df_ncm_top.nlargest(10, "TOTAL")
+                df_ncm_top = df_ncm_top.sort_values("TOTAL", ascending=True)  # Para exibir em ordem crescente
+                
+                if not df_ncm_top.empty:
+                    fig_ncm = px.barh(
+                        df_ncm_top,
+                        x="TOTAL",
+                        y="NCM",
+                        title="Top 10 NCM com Maior Concentração de Créditos",
+                        color="TOTAL",
+                        color_continuous_scale=px.colors.sequential.Teal,
+                        labels={"TOTAL": "Valor Total (R$)", "NCM": "NCM"},
+                        template="plotly_white",
+                    )
+                    fig_ncm.update_layout(
+                        xaxis_title="Valor Total (R$)",
+                        yaxis_title="NCM",
+                        showlegend=False,
+                        margin=dict(l=10, r=10, t=40, b=10),
+                    )
+                    st.plotly_chart(fig_ncm, use_container_width=True)
+                else:
+                    st.info("Nenhum NCM com crédito encontrado para gerar o gráfico.")
+            except Exception as e:
+                st.error(f"Erro ao gerar gráfico de NCM. Verifique se as colunas 'NCM', 'VL_PIS' e 'VL_COFINS' estão presentes e são numéricas. Erro: {e}")
         else:
             st.info("Nenhum documento C100/C170 com crédito encontrado para a seleção atual.")
         
