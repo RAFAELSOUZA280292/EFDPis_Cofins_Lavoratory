@@ -992,7 +992,7 @@ with tab_charts:
             else:
                 st.info("Nenhum NCM com crédito encontrado para gerar o gráfico.")
         else:
-            st.info("Nenhum documento C100/C170 com crédito encontrado para a seleção atual.") unsafe_allow_html=True)
+            st.info("Nenhum documento C100/C170 com crédito encontrado para a seleção atual.")
         
         col1, col2, col3 = st.columns(3)
         
