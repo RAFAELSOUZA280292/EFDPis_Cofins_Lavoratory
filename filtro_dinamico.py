@@ -152,11 +152,7 @@ def criar_busca_rapida(dataframes: Dict[str, pd.DataFrame]) -> None:
             else:
                 st.warning("Nenhuma nota encontrada com essa chave")
     
-    # Busca por NCM
-    with col2:
-        st.markdown("**📦 NCM**")
-        if not dataframes["df_c100_cred"].emp    # A busca por NCM foi removida temporariamente para corrigir o KeyError.
-    # A coluna NCM não está sendo populada corretamente pelo parser atual.
+    # Busca por NCM (Temporariamente Desativada)
     with col2:
         st.markdown("**🔢 Busca por NCM (Desativada)**")
         st.info("A busca por NCM está temporariamente desativada.")    
