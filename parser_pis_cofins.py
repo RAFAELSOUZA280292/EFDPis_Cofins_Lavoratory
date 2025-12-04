@@ -114,6 +114,7 @@ def parse_efd_piscofins(lines):
                         'VL_BC_COFINS': float(parts[32].replace(',', '.')) if parts[32] else 0, # Campo 32
                         'ALIQ_COFINS': float(parts[33].replace(',', '.')) if parts[33] else 0, # Campo 33
                         'VL_COFINS': float(parts[36].replace(',', '.')) if parts[36] else 0, # Campo 36
+                        'NOME_PART': 'PARTICIPANTE_NAO_MAPEADO', # Placeholder para evitar KeyError
                     })
                 except (ValueError, IndexError):
                     pass
