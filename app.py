@@ -671,8 +671,15 @@ total_base_pis = 0.0
 total_base_cofins = 0.0
 
 # Filtra documentos com crédito real para cálculo de totais
-df_c100_cred = df_c100[(df_c100["VL_PIS"] > 0) | (df_c100["VL_COFINS"] > 0)]
-df_outros_cred = df_outros[(df_outros["VL_PIS"] > 0) | (df_outros["VL_COFINS"] > 0)]
+if not df_c100.empty and "VL_PIS" in df_c100.columns and "VL_COFINS" in df_c100.columns:
+    df_c100_cred = df_c100[(df_c100["VL_PIS"] > 0) | (df_c100["VL_COFINS"] > 0)]
+else:
+    df_c100_cred = pd.DataFrame()
+
+if not df_outros.empty and "VL_PIS" in df_outros.columns and "VL_COFINS" in df_outros.columns:
+    df_outros_cred = df_outros[(df_outros["VL_PIS"] > 0) | (df_outros["VL_COFINS"] > 0)]
+else:
+    df_outros_cred = pd.DataFrame()
 
 if not df_c100_cred.empty:
     total_pis += df_c100_cred["VL_PIS"].sum()

@@ -259,8 +259,18 @@ def parse_efd_piscofins(lines):
     outros_data = a100_data + d100_data + f100_data
     df_out = pd.DataFrame(outros_data) if outros_data else pd.DataFrame()
     
+    # Ensure df_out has required columns even when empty
+    cols_outros_expected = ['VL_BC_PIS', 'VL_PIS', 'VL_BC_COFINS', 'VL_COFINS', 'TIPO']
+    for col in cols_outros_expected:
+        if col not in df_out.columns:
+            df_out[col] = 0 if col.startswith('VL_') else ''
+    
     # Add competencia and empresa
     if not df_out.empty:
+        df_out['COMPETENCIA'] = competencia
+        df_out['EMPRESA'] = empresa
+    else:
+        # Create empty dataframe with all expected columns
         df_out['COMPETENCIA'] = competencia
         df_out['EMPRESA'] = empresa
     
