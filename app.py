@@ -26,6 +26,14 @@ from exportar_pdf import exportar_dashboard_pdf
 from parser_pis_cofins import parse_efd_piscofins
 from filtro_dinamico import criar_filtro_dinamico, criar_busca_rapida
 from css_melhorado import aplicar_css
+from analise_entrada_saida import (
+    adicionar_classificacao_entrada_saida,
+    separar_entrada_saida,
+    calcular_totais_por_tipo,
+    resumo_entrada_saida,
+    top_produtos_por_tipo,
+    evolucao_mensal_entrada_saida
+)
 
 
 # =============================================================================
@@ -662,6 +670,17 @@ if not df_outros.empty:
     df_outros["VL_COFINS"] = df_outros["VL_COFINS"].apply(to_float)
 
 # =============================================================================
+# CLASSIFICAÇÃO DE ENTRADA E SAÍDA
+# =============================================================================
+
+# Adiciona classificação de entrada/saída baseada no CFOP
+if not df_c100.empty:
+    df_c100 = adicionar_classificacao_entrada_saida(df_c100)
+
+if not df_outros.empty:
+    df_outros = adicionar_classificacao_entrada_saida(df_outros)
+
+# =============================================================================
 # CÁLCULO DE TOTAIS E RESUMOS
 # =============================================================================
 
@@ -730,8 +749,8 @@ else:
 # NAVEGAÇÃO COM ABAS
 # =============================================================================
 
-tab_exec, tab_docs, tab_charts, tab_export = st.tabs(
-    ["📈 Executiva", "📋 Documentos", "📊 Gráficos", "💾 Exportar"]
+tab_exec, tab_entrada_saida, tab_docs, tab_charts, tab_export = st.tabs(
+    ["📈 Executiva", "🔄 Entrada/Saída", "📋 Documentos", "📊 Gráficos", "💾 Exportar"]
 )
 
 # =============================================================================
@@ -872,7 +891,229 @@ with tab_exec:
 
 
 # =============================================================================
-# ABA 2: DOCUMENTOS
+# ABA 2: ANÁLISE DE ENTRADA E SAÍDA
+# =============================================================================
+
+with tab_entrada_saida:
+    st.markdown("<h2 class='section-title'>🔄 Análise de Notas Fiscais: Entrada vs Saída</h2>", unsafe_allow_html=True)
+    
+    # Calcula totais por tipo
+    totais_tipo = calcular_totais_por_tipo(df_c100)
+    
+    # KPIs de Entrada e Saída
+    st.markdown("<h3 class='subsection-title'>📊 Indicadores por Tipo de Operação</h3>", unsafe_allow_html=True)
+    
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        st.metric(
+            label="📥 NF-e de Entrada",
+            value=f"{totais_tipo['ENTRADA']['qtd']:,}",
+            help="Quantidade de notas fiscais de entrada (CFOP 1xxx, 2xxx, 3xxx)"
+        )
+    
+    with col2:
+        st.metric(
+            label="📤 NF-e de Saída",
+            value=f"{totais_tipo['SAÍDA']['qtd']:,}",
+            help="Quantidade de notas fiscais de saída (CFOP 5xxx, 6xxx, 7xxx)"
+        )
+    
+    with col3:
+        total_entrada = totais_tipo['ENTRADA']['total']
+        st.metric(
+            label="💰 Total Entrada (PIS+COFINS)",
+            value=f"R$ {total_entrada:,.2f}",
+            help="Valor total de créditos de PIS e COFINS em entradas"
+        )
+    
+    with col4:
+        total_saida = totais_tipo['SAÍDA']['total']
+        st.metric(
+            label="💸 Total Saída (PIS+COFINS)",
+            value=f"R$ {total_saida:,.2f}",
+            help="Valor total de PIS e COFINS em saídas"
+        )
+    
+    st.markdown("<div class='divider'></div>", unsafe_allow_html=True)
+    
+    # Gráfico de Pizza: Entrada vs Saída
+    st.markdown("<h3 class='subsection-title'>🥧 Distribuição: Entrada vs Saída</h3>", unsafe_allow_html=True)
+    
+    col_pie1, col_pie2 = st.columns(2)
+    
+    with col_pie1:
+        # Gráfico de pizza por quantidade
+        df_pie_qtd = pd.DataFrame([
+            {'Tipo': 'Entrada', 'Quantidade': totais_tipo['ENTRADA']['qtd']},
+            {'Tipo': 'Saída', 'Quantidade': totais_tipo['SAÍDA']['qtd']}
+        ])
+        
+        if df_pie_qtd['Quantidade'].sum() > 0:
+            fig_pie_qtd = px.pie(
+                df_pie_qtd,
+                values='Quantidade',
+                names='Tipo',
+                title='Distribuição por Quantidade de NF-e',
+                color='Tipo',
+                color_discrete_map={'Entrada': '#0f766e', 'Saída': '#dc2626'},
+                hole=0.4
+            )
+            fig_pie_qtd.update_traces(textinfo='percent+label+value', textfont_size=12)
+            st.plotly_chart(fig_pie_qtd, use_container_width=True)
+        else:
+            st.info("Sem dados para exibir")
+    
+    with col_pie2:
+        # Gráfico de pizza por valor
+        df_pie_valor = pd.DataFrame([
+            {'Tipo': 'Entrada', 'Valor': totais_tipo['ENTRADA']['total']},
+            {'Tipo': 'Saída', 'Valor': totais_tipo['SAÍDA']['total']}
+        ])
+        
+        if df_pie_valor['Valor'].sum() > 0:
+            fig_pie_valor = px.pie(
+                df_pie_valor,
+                values='Valor',
+                names='Tipo',
+                title='Distribuição por Valor (PIS+COFINS)',
+                color='Tipo',
+                color_discrete_map={'Entrada': '#0f766e', 'Saída': '#dc2626'},
+                hole=0.4
+            )
+            fig_pie_valor.update_traces(textinfo='percent+label', textfont_size=12)
+            st.plotly_chart(fig_pie_valor, use_container_width=True)
+        else:
+            st.info("Sem dados para exibir")
+    
+    st.markdown("<div class='divider'></div>", unsafe_allow_html=True)
+    
+    # Resumo Detalhado
+    st.markdown("<h3 class='subsection-title'>📊 Resumo Detalhado por Tipo</h3>", unsafe_allow_html=True)
+    
+    df_resumo = resumo_entrada_saida(df_c100)
+    
+    if not df_resumo.empty:
+        # Formata valores para exibição
+        df_resumo_display = df_resumo.copy()
+        df_resumo_display['PIS'] = df_resumo_display['PIS'].apply(lambda x: f"R$ {x:,.2f}")
+        df_resumo_display['COFINS'] = df_resumo_display['COFINS'].apply(lambda x: f"R$ {x:,.2f}")
+        df_resumo_display['TOTAL'] = df_resumo_display['TOTAL'].apply(lambda x: f"R$ {x:,.2f}")
+        df_resumo_display['QUANTIDADE'] = df_resumo_display['QUANTIDADE'].apply(lambda x: f"{x:,}")
+        
+        st.dataframe(
+            df_resumo_display,
+            use_container_width=True,
+            hide_index=True
+        )
+    else:
+        st.info("Nenhum dado disponível para resumo")
+    
+    st.markdown("<div class='divider'></div>", unsafe_allow_html=True)
+    
+    # Gráfico de Barras Comparativo
+    st.markdown("<h3 class='subsection-title'>📊 Comparativo PIS vs COFINS</h3>", unsafe_allow_html=True)
+    
+    if not df_resumo.empty:
+        df_bar_comp = df_resumo.melt(
+            id_vars='TIPO',
+            value_vars=['PIS', 'COFINS'],
+            var_name='Imposto',
+            value_name='Valor'
+        )
+        
+        fig_bar_comp = px.bar(
+            df_bar_comp,
+            x='TIPO',
+            y='Valor',
+            color='Imposto',
+            barmode='group',
+            title='Comparação de PIS e COFINS por Tipo de Operação',
+            color_discrete_map={'PIS': '#1e3a8a', 'COFINS': '#0f766e'},
+            labels={'Valor': 'Valor (R$)', 'TIPO': 'Tipo de Operação'}
+        )
+        fig_bar_comp.update_layout(
+            xaxis_title="Tipo de Operação",
+            yaxis_title="Valor (R$)",
+            legend_title="Imposto"
+        )
+        st.plotly_chart(fig_bar_comp, use_container_width=True)
+    
+    st.markdown("<div class='divider'></div>", unsafe_allow_html=True)
+    
+    # Top Produtos por Tipo
+    st.markdown("<h3 class='subsection-title'>🏆 Top 10 Produtos</h3>", unsafe_allow_html=True)
+    
+    col_top1, col_top2 = st.columns(2)
+    
+    with col_top1:
+        st.markdown("**📥 Top Produtos em ENTRADA**")
+        df_top_entrada = top_produtos_por_tipo(df_c100, 'ENTRADA', 10)
+        
+        if not df_top_entrada.empty:
+            fig_top_entrada = px.barh(
+                df_top_entrada,
+                x='TOTAL',
+                y='DESCR_ITEM',
+                title='Top 10 Produtos - Entrada',
+                color='TOTAL',
+                color_continuous_scale='Teal',
+                labels={'TOTAL': 'Valor (R$)', 'DESCR_ITEM': 'Produto'}
+            )
+            fig_top_entrada.update_layout(showlegend=False, height=400)
+            st.plotly_chart(fig_top_entrada, use_container_width=True)
+        else:
+            st.info("Nenhum produto de entrada encontrado")
+    
+    with col_top2:
+        st.markdown("**📤 Top Produtos em SAÍDA**")
+        df_top_saida = top_produtos_por_tipo(df_c100, 'SAÍDA', 10)
+        
+        if not df_top_saida.empty:
+            fig_top_saida = px.barh(
+                df_top_saida,
+                x='TOTAL',
+                y='DESCR_ITEM',
+                title='Top 10 Produtos - Saída',
+                color='TOTAL',
+                color_continuous_scale='Reds',
+                labels={'TOTAL': 'Valor (R$)', 'DESCR_ITEM': 'Produto'}
+            )
+            fig_top_saida.update_layout(showlegend=False, height=400)
+            st.plotly_chart(fig_top_saida, use_container_width=True)
+        else:
+            st.info("Nenhum produto de saída encontrado")
+    
+    st.markdown("<div class='divider'></div>", unsafe_allow_html=True)
+    
+    # Evolução Mensal (se houver dados de competência)
+    st.markdown("<h3 class='subsection-title'>📈 Evolução Temporal</h3>", unsafe_allow_html=True)
+    
+    df_evolucao = evolucao_mensal_entrada_saida(df_c100)
+    
+    if not df_evolucao.empty and len(df_evolucao['COMPETENCIA'].unique()) > 1:
+        fig_evolucao = px.line(
+            df_evolucao,
+            x='COMPETENCIA',
+            y='TOTAL',
+            color='TIPO_OPERACAO',
+            title='Evolução Mensal: Entrada vs Saída',
+            color_discrete_map={'ENTRADA': '#0f766e', 'SAÍDA': '#dc2626'},
+            labels={'TOTAL': 'Valor Total (R$)', 'COMPETENCIA': 'Competência', 'TIPO_OPERACAO': 'Tipo'},
+            markers=True
+        )
+        fig_evolucao.update_layout(
+            xaxis_title="Competência",
+            yaxis_title="Valor (R$)",
+            legend_title="Tipo de Operação"
+        )
+        st.plotly_chart(fig_evolucao, use_container_width=True)
+    else:
+        st.info("⚠️ Para visualizar a evolução temporal, carregue arquivos de múltiplas competências.")
+
+
+# =============================================================================
+# ABA 3: DOCUMENTOS
 # =============================================================================
 
 with tab_docs:
