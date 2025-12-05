@@ -108,14 +108,14 @@ if uploaded_files:
         # Prepara DataFrame para exibição
         df_entrada_display = df_entrada[[
             'NUM_DOC', 'CHV_NFE', 'DT_DOC', 'COD_ITEM', 'DESCR_ITEM', 
-            'NCM', 'CFOP', 'VL_BC_PIS', 'VL_PIS', 'VL_BC_COFINS', 'VL_COFINS', 'VL_TOTAL'
+            'NCM', 'CFOP', 'CST_PIS', 'VL_BC_PIS', 'VL_PIS', 'CST_COFINS', 'VL_BC_COFINS', 'VL_COFINS', 'VL_TOTAL'
         ]].copy()
         
         # Renomeia colunas para exibição
         df_entrada_display.columns = [
             'Número NF', 'Chave de Acesso', 'Data Emissão', 'Cód. Produto', 
-            'Produto', 'NCM', 'CFOP', 'Base PIS', 'Valor PIS', 
-            'Base COFINS', 'Valor COFINS', 'Total'
+            'Produto', 'NCM', 'CFOP', 'CST PIS', 'Base PIS', 'Valor PIS', 
+            'CST COFINS', 'Base COFINS', 'Valor COFINS', 'Total'
         ]
         
         # Formata valores monetários
@@ -175,14 +175,14 @@ if uploaded_files:
         # Prepara DataFrame para exibição
         df_saida_display = df_saida[[
             'NUM_DOC', 'CHV_NFE', 'DT_DOC', 'COD_ITEM', 'DESCR_ITEM', 
-            'NCM', 'CFOP', 'VL_BC_PIS', 'VL_PIS', 'VL_BC_COFINS', 'VL_COFINS', 'VL_TOTAL'
+            'NCM', 'CFOP', 'CST_PIS', 'VL_BC_PIS', 'VL_PIS', 'CST_COFINS', 'VL_BC_COFINS', 'VL_COFINS', 'VL_TOTAL'
         ]].copy()
         
         # Renomeia colunas para exibição
         df_saida_display.columns = [
             'Número NF', 'Chave de Acesso', 'Data Emissão', 'Cód. Produto', 
-            'Produto', 'NCM', 'CFOP', 'Base PIS', 'Valor PIS', 
-            'Base COFINS', 'Valor COFINS', 'Total'
+            'Produto', 'NCM', 'CFOP', 'CST PIS', 'Base PIS', 'Valor PIS', 
+            'CST COFINS', 'Base COFINS', 'Valor COFINS', 'Total'
         ]
         
         # Formata valores monetários

@@ -1,6 +1,6 @@
 """
-Parser SPED PIS/COFINS - Versão Simplificada
-Extrai dados de Notas Fiscais dos registros C100 e C170
+Parser SPED PIS/COFINS - Versão Corrigida
+Extrai dados de Notas Fiscais dos registros 0200, C100 e C170
 """
 
 import pandas as pd
@@ -30,6 +30,18 @@ def to_float(valor: str) -> float:
         return 0.0
 
 
+def formatar_valor_br(valor: float) -> str:
+    """Formata valor no padrão brasileiro: R$ 1.234,56"""
+    try:
+        # Formata com 2 casas decimais
+        valor_str = f"{valor:,.2f}"
+        # Substitui separadores: , por . e . por ,
+        valor_str = valor_str.replace(',', 'X').replace('.', ',').replace('X', '.')
+        return f"R$ {valor_str}"
+    except:
+        return "R$ 0,00"
+
+
 def processar_sped(conteudo: str) -> pd.DataFrame:
     """
     Processa o conteúdo de um arquivo SPED e retorna DataFrame com NF-e
@@ -42,10 +54,28 @@ def processar_sped(conteudo: str) -> pd.DataFrame:
     """
     linhas = conteudo.split('\n')
     
+    # Dicionário para armazenar produtos do registro 0200
+    produtos = {}
+    
+    # Primeiro passo: Ler todos os registros 0200 (cadastro de produtos)
+    for linha in linhas:
+        linha = linha.strip()
+        if linha.startswith('|0200|'):
+            cod_item = extrair_campo(linha, 2)
+            descr_item = extrair_campo(linha, 3)
+            ncm = extrair_campo(linha, 8)
+            
+            if cod_item:
+                produtos[cod_item] = {
+                    'descricao': descr_item,
+                    'ncm': ncm
+                }
+    
     # Dicionários para armazenar dados
     c100_atual = {}
     registros = []
     
+    # Segundo passo: Processar C100 e C170
     for linha in linhas:
         linha = linha.strip()
         
@@ -54,20 +84,22 @@ def processar_sped(conteudo: str) -> pd.DataFrame:
         
         # Registro C100 - Cabeçalho do Documento
         if linha.startswith('|C100|'):
-            partes = linha.split('|')
-            
             c100_atual = {
-                'NUM_DOC': extrair_campo(linha, 9),  # Número do documento
-                'CHV_NFE': extrair_campo(linha, 10),  # Chave NF-e
-                'DT_DOC': extrair_campo(linha, 11),   # Data do documento
+                'NUM_DOC': extrair_campo(linha, 8),   # Número do documento
+                'CHV_NFE': extrair_campo(linha, 9),   # Chave NF-e
+                'DT_DOC': extrair_campo(linha, 10),   # Data do documento (emissão)
                 'COD_PART': extrair_campo(linha, 4),  # Código participante
             }
         
         # Registro C170 - Itens do Documento
         elif linha.startswith('|C170|') and c100_atual:
-            partes = linha.split('|')
+            # Extrai código do item
+            cod_item = extrair_campo(linha, 3)
             
-            # Extrai dados do item
+            # Busca descrição e NCM no cadastro de produtos
+            produto_info = produtos.get(cod_item, {'descricao': '', 'ncm': ''})
+            
+            # Extrai dados do item conforme mapeamento correto
             registro = {
                 # Dados do documento (C100)
                 'NUM_DOC': c100_atual.get('NUM_DOC', ''),
@@ -76,24 +108,22 @@ def processar_sped(conteudo: str) -> pd.DataFrame:
                 'COD_PART': c100_atual.get('COD_PART', ''),
                 
                 # Dados do item (C170)
-                # [2]=NUM_ITEM, [3]=DESCR, [4]=COD_ITEM, [5]=CFOP, [6]=CST_PIS, [7]=VL_BC_PIS, [8]=ALIQ_PIS, [9]=VL_PIS
-                # [10]=CST_COFINS, [11]=VL_BC_COFINS, [12]=ALIQ_COFINS, [13]=VL_COFINS
-                'COD_ITEM': extrair_campo(linha, 4),      # Código do produto
-                'DESCR_ITEM': extrair_campo(linha, 3),    # Descrição do produto
-                'NCM': '',                                # NCM não está no C170 simplificado
-                'CFOP': extrair_campo(linha, 5),          # CFOP
+                'COD_ITEM': cod_item,
+                'DESCR_ITEM': produto_info['descricao'],
+                'NCM': produto_info['ncm'],
+                'CFOP': extrair_campo(linha, 11),         # Campo [11] = CFOP
                 
                 # Valores PIS
-                'CST_PIS': extrair_campo(linha, 6),       # CST PIS
-                'VL_BC_PIS': extrair_campo(linha, 7),     # Base de cálculo PIS
-                'ALIQ_PIS': extrair_campo(linha, 8),      # Alíquota PIS
-                'VL_PIS': extrair_campo(linha, 9),        # Valor PIS
+                'CST_PIS': extrair_campo(linha, 25),      # Campo [25] = CST PIS
+                'VL_BC_PIS': extrair_campo(linha, 26),    # Campo [26] = Base de cálculo PIS
+                'ALIQ_PIS': extrair_campo(linha, 27),     # Campo [27] = Alíquota PIS
+                'VL_PIS': extrair_campo(linha, 30),       # Campo [30] = Valor PIS
                 
                 # Valores COFINS
-                'CST_COFINS': extrair_campo(linha, 10),   # CST COFINS
-                'VL_BC_COFINS': extrair_campo(linha, 11), # Base de cálculo COFINS
-                'ALIQ_COFINS': extrair_campo(linha, 12),  # Alíquota COFINS
-                'VL_COFINS': extrair_campo(linha, 13),    # Valor COFINS
+                'CST_COFINS': extrair_campo(linha, 31),   # Campo [31] = CST COFINS
+                'VL_BC_COFINS': extrair_campo(linha, 32), # Campo [32] = Base de cálculo COFINS
+                'ALIQ_COFINS': extrair_campo(linha, 33),  # Campo [33] = Alíquota COFINS
+                'VL_COFINS': extrair_campo(linha, 36),    # Campo [36] = Valor COFINS
             }
             
             registros.append(registro)
