@@ -8,6 +8,8 @@ import pandas as pd
 import zipfile
 import io
 from sped_parser import processar_multiplos_speds
+from dashboards_bigfour import exibir_dashboard_executivo
+from filtros_avancados import criar_painel_filtros, exibir_resumo_filtros
 
 # Configuração da página
 st.set_page_config(
@@ -71,9 +73,25 @@ if uploaded_files:
     
     st.success(f"✅ {len(df_completo)} registros processados com sucesso!")
     
-    # Separa ENTRADA e SAÍDA
-    df_entrada = df_completo[df_completo['TIPO_OPERACAO'] == 'ENTRADA'].copy()
-    df_saida = df_completo[df_completo['TIPO_OPERACAO'] == 'SAÍDA'].copy()
+    # ========================================================================
+    # DASHBOARD EXECUTIVO (NOVO)
+    # ========================================================================
+    exibir_dashboard_executivo(df_completo)
+    
+    # ========================================================================
+    # FILTROS AVANÇADOS (NOVO)
+    # ========================================================================
+    df_filtrado = criar_painel_filtros(df_completo)
+    
+    # Exibe resumo dos filtros se houver filtros aplicados
+    if len(df_filtrado) < len(df_completo):
+        st.markdown("---")
+        st.markdown("## 🔍 Resultado dos Filtros")
+        exibir_resumo_filtros(df_completo, df_filtrado)
+    
+    # Separa ENTRADA e SAÍDA (usando dados filtrados)
+    df_entrada = df_filtrado[df_filtrado['TIPO_OPERACAO'] == 'ENTRADA'].copy()
+    df_saida = df_filtrado[df_filtrado['TIPO_OPERACAO'] == 'SAÍDA'].copy()
     
     st.markdown("---")
     
