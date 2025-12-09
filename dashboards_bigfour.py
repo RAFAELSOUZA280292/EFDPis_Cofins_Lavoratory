@@ -30,9 +30,13 @@ PIZZA_COLORS = [
 
 
 def formatar_valor_br(valor):
-    """Formata valor no padrão brasileiro"""
+    """Formata valor no padrão brasileiro: R$ 1.234,56"""
     try:
-        return f"R$ {valor:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
+        # Formata com 2 casas decimais usando formato americano
+        valor_str = f"{valor:,.2f}"
+        # Troca separadores: , por TEMP, . por ,, TEMP por .
+        valor_str = valor_str.replace(',', 'TEMP').replace('.', ',').replace('TEMP', '.')
+        return f"R$ {valor_str}"
     except:
         return "R$ 0,00"
 

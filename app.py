@@ -111,15 +111,15 @@ if uploaded_files:
         
         with col2:
             total_pis_entrada = df_entrada['VL_PIS'].sum()
-            st.metric("Total PIS", f"R$ {total_pis_entrada:,.2f}")
+            st.metric("Total PIS", f"R$ {total_pis_entrada:,.2f}".replace(',', 'TEMP').replace('.', ',').replace('TEMP', '.'))
         
         with col3:
             total_cofins_entrada = df_entrada['VL_COFINS'].sum()
-            st.metric("Total COFINS", f"R$ {total_cofins_entrada:,.2f}")
+            st.metric("Total COFINS", f"R$ {total_cofins_entrada:,.2f}".replace(',', 'TEMP').replace('.', ',').replace('TEMP', '.'))
         
         with col4:
             total_entrada = total_pis_entrada + total_cofins_entrada
-            st.metric("Total Geral", f"R$ {total_entrada:,.2f}")
+            st.metric("Total Geral", f"R$ {total_entrada:,.2f}".replace(',', 'TEMP').replace('.', ',').replace('TEMP', '.'))
         
         st.markdown("### 📋 Detalhamento das Notas de Entrada")
         
@@ -136,10 +136,12 @@ if uploaded_files:
             'CST COFINS', 'Base COFINS', 'Valor COFINS', 'Total'
         ]
         
-        # Formata valores monetários
+        # Formata valores monetários no padrão brasileiro
         colunas_monetarias = ['Base PIS', 'Valor PIS', 'Base COFINS', 'Valor COFINS', 'Total']
         for col in colunas_monetarias:
-            df_entrada_display[col] = df_entrada_display[col].apply(lambda x: f"R$ {x:,.2f}")
+            df_entrada_display[col] = df_entrada_display[col].apply(
+                lambda x: f"R$ {x:,.2f}".replace(',', 'TEMP').replace('.', ',').replace('TEMP', '.')
+            )
         
         # Exibe tabela
         st.dataframe(
@@ -178,15 +180,15 @@ if uploaded_files:
         
         with col2:
             total_pis_saida = df_saida['VL_PIS'].sum()
-            st.metric("Total PIS", f"R$ {total_pis_saida:,.2f}")
+            st.metric("Total PIS", f"R$ {total_pis_saida:,.2f}".replace(',', 'TEMP').replace('.', ',').replace('TEMP', '.'))
         
         with col3:
             total_cofins_saida = df_saida['VL_COFINS'].sum()
-            st.metric("Total COFINS", f"R$ {total_cofins_saida:,.2f}")
+            st.metric("Total COFINS", f"R$ {total_cofins_saida:,.2f}".replace(',', 'TEMP').replace('.', ',').replace('TEMP', '.'))
         
         with col4:
             total_saida = total_pis_saida + total_cofins_saida
-            st.metric("Total Geral", f"R$ {total_saida:,.2f}")
+            st.metric("Total Geral", f"R$ {total_saida:,.2f}".replace(',', 'TEMP').replace('.', ',').replace('TEMP', '.'))
         
         st.markdown("### 📋 Detalhamento das Notas de Saída")
         
@@ -203,10 +205,12 @@ if uploaded_files:
             'CST COFINS', 'Base COFINS', 'Valor COFINS', 'Total'
         ]
         
-        # Formata valores monetários
+        # Formata valores monetários no padrão brasileiro
         colunas_monetarias = ['Base PIS', 'Valor PIS', 'Base COFINS', 'Valor COFINS', 'Total']
         for col in colunas_monetarias:
-            df_saida_display[col] = df_saida_display[col].apply(lambda x: f"R$ {x:,.2f}")
+            df_saida_display[col] = df_saida_display[col].apply(
+                lambda x: f"R$ {x:,.2f}".replace(',', 'TEMP').replace('.', ',').replace('TEMP', '.')
+            )
         
         # Exibe tabela
         st.dataframe(
@@ -240,16 +244,16 @@ if uploaded_files:
     with col1:
         st.markdown("### 📥 Entrada")
         st.metric("Quantidade", f"{len(df_entrada):,}")
-        st.metric("PIS", f"R$ {df_entrada['VL_PIS'].sum():,.2f}" if not df_entrada.empty else "R$ 0,00")
-        st.metric("COFINS", f"R$ {df_entrada['VL_COFINS'].sum():,.2f}" if not df_entrada.empty else "R$ 0,00")
-        st.metric("TOTAL", f"R$ {df_entrada['VL_TOTAL'].sum():,.2f}" if not df_entrada.empty else "R$ 0,00")
+        st.metric("PIS", f"R$ {df_entrada['VL_PIS'].sum():,.2f}".replace(',', 'TEMP').replace('.', ',').replace('TEMP', '.') if not df_entrada.empty else "R$ 0,00")
+        st.metric("COFINS", f"R$ {df_entrada['VL_COFINS'].sum():,.2f}".replace(',', 'TEMP').replace('.', ',').replace('TEMP', '.') if not df_entrada.empty else "R$ 0,00")
+        st.metric("TOTAL", f"R$ {df_entrada['VL_TOTAL'].sum():,.2f}".replace(',', 'TEMP').replace('.', ',').replace('TEMP', '.') if not df_entrada.empty else "R$ 0,00")
     
     with col2:
         st.markdown("### 📤 Saída")
         st.metric("Quantidade", f"{len(df_saida):,}")
-        st.metric("PIS", f"R$ {df_saida['VL_PIS'].sum():,.2f}" if not df_saida.empty else "R$ 0,00")
-        st.metric("COFINS", f"R$ {df_saida['VL_COFINS'].sum():,.2f}" if not df_saida.empty else "R$ 0,00")
-        st.metric("TOTAL", f"R$ {df_saida['VL_TOTAL'].sum():,.2f}" if not df_saida.empty else "R$ 0,00")
+        st.metric("PIS", f"R$ {df_saida['VL_PIS'].sum():,.2f}".replace(',', 'TEMP').replace('.', ',').replace('TEMP', '.') if not df_saida.empty else "R$ 0,00")
+        st.metric("COFINS", f"R$ {df_saida['VL_COFINS'].sum():,.2f}".replace(',', 'TEMP').replace('.', ',').replace('TEMP', '.') if not df_saida.empty else "R$ 0,00")
+        st.metric("TOTAL", f"R$ {df_saida['VL_TOTAL'].sum():,.2f}".replace(',', 'TEMP').replace('.', ',').replace('TEMP', '.') if not df_saida.empty else "R$ 0,00")
 
 else:
     st.info("👆 Faça upload de arquivos SPED para começar a análise")
