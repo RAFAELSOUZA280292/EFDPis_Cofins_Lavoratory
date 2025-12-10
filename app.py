@@ -91,7 +91,9 @@ with aba1:
         
         # Processa os arquivos
         with st.spinner("Processando registros C100 e C170..."):
-            df_completo = processar_multiplos_speds(arquivos_conteudo)
+            # Extrai apenas o conteúdo (segundo elemento da tupla)
+            conteudos = [conteudo for nome, conteudo in arquivos_conteudo]
+            df_completo = processar_multiplos_speds(conteudos)
         
         if df_completo.empty:
             st.error("❌ Nenhum dado encontrado nos arquivos SPED!")
