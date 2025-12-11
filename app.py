@@ -105,14 +105,14 @@ if uploaded_files:
             
             # Conta total de registros M
             total_m = sum([
-                len(dados_m['m200']),
-                len(dados_m['m105']),
-                len(dados_m['m210']),
-                len(dados_m['m410']),
-                len(dados_m['m600']),
-                len(dados_m['m505']),
-                len(dados_m['m610']),
-                len(dados_m['m810'])
+                len(dados_m['df_ap_pis']),
+                len(dados_m['df_cred_pis']),
+                len(dados_m['df_rec_pis']),
+                len(dados_m['df_ri_pis']),
+                len(dados_m['df_ap_cof']),
+                len(dados_m['df_cred_cof']),
+                len(dados_m['df_rec_cof']),
+                len(dados_m['df_ri_cof'])
             ])
             
             if total_m > 0:

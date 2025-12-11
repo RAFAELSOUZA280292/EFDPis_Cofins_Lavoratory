@@ -31,19 +31,19 @@ def exibir_aba_apuracao_com_dados(dados_m):
     """Exibe a aba de Apuração PIS/COFINS com dados já processados"""
     
     # Extrai DataFrames dos dados processados
-    df_ap_pis = dados_m['m200']
-    df_cred_pis = dados_m['m105']
-    df_rec_pis = dados_m['m210']
-    df_ri_pis = dados_m['m410']
+    df_ap_pis = dados_m['df_ap_pis']
+    df_cred_pis = dados_m['df_cred_pis']
+    df_rec_pis = dados_m['df_rec_pis']
+    df_ri_pis = dados_m['df_ri_pis']
     
-    df_ap_cof = dados_m['m600']
-    df_cred_cof = dados_m['m505']
-    df_rec_cof = dados_m['m610']
-    df_ri_cof = dados_m['m810']
+    df_ap_cof = dados_m['df_ap_cof']
+    df_cred_cof = dados_m['df_cred_cof']
+    df_rec_cof = dados_m['df_rec_cof']
+    df_ri_cof = dados_m['df_ri_cof']
     
-    df_idx_cod_cont = dados_m['idx_cod_cont']
-    df_idx_nat_rec = dados_m['idx_nat_rec']
-    df_idx_nat_bc = dados_m['idx_nat_bc']
+    df_idx_cod_cont = dados_m['df_idx_cod_cont']
+    df_idx_nat_rec = dados_m['df_idx_nat_rec']
+    df_idx_nat_bc = dados_m['df_idx_nat_bc']
     
     # Verifica se há dados
     total_registros = (
