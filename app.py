@@ -8,7 +8,7 @@ import pandas as pd
 import zipfile
 import io
 from sped_parser import processar_multiplos_speds
-from parser_registros_m import processar_registros_m
+from parser_registros_m import processar_multiplos_speds_m
 from dashboards_bigfour import exibir_dashboard_executivo
 from filtros_avancados import criar_painel_filtros, exibir_resumo_filtros
 
@@ -101,7 +101,7 @@ if uploaded_files:
     
     with st.spinner("Processando Registros M (Apuração)..."):
         try:
-            dados_m = processar_registros_m(arquivos_conteudo)
+            dados_m = processar_multiplos_speds_m(arquivos_conteudo)
             
             # Conta total de registros M
             total_m = sum([
