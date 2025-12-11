@@ -193,8 +193,9 @@ def criar_acumulador_cfop(df, tipo_operacao='ENTRADA'):
     # ========================================================================
     
     # Agrupa por CFOP e soma os valores
+    # Nota: Não incluímos CFOP no agg porque ele é o índice do groupby
     acumulador = df.groupby('CFOP').agg({
-        'CFOP': 'count',  # Conta quantidade de notas
+        'NUM_DOC': 'count',  # Conta quantidade de notas
         'VL_BC_PIS': 'sum',
         'VL_PIS': 'sum',
         'VL_BC_COFINS': 'sum',
@@ -202,7 +203,7 @@ def criar_acumulador_cfop(df, tipo_operacao='ENTRADA'):
     }).reset_index()
     
     # Renomeia coluna de contagem
-    acumulador.columns = ['CFOP', 'QTD_NOTAS', 'VL_BC_PIS', 'VL_PIS', 'VL_BC_COFINS', 'VL_COFINS']
+    acumulador = acumulador.rename(columns={'NUM_DOC': 'QTD_NOTAS'})
     
     # ========================================================================
     # PASSO 3: CÁLCULOS ADICIONAIS
