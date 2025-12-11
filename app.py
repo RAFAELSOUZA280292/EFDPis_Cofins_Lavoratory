@@ -1,9 +1,16 @@
 """
 Analisador de SPED PIS/COFINS
-Sistema com múltiplas abas
+Sistema com múltiplas abas e upload global
 """
 
 import streamlit as st
+import pandas as pd
+import zipfile
+import io
+from sped_parser import processar_multiplos_speds
+from parser_registros_m import processar_registros_m
+from dashboards_bigfour import exibir_dashboard_executivo
+from filtros_avancados import criar_painel_filtros, exibir_resumo_filtros
 
 # Configuração da página
 st.set_page_config(
@@ -18,7 +25,108 @@ st.markdown("### Sistema Completo de Análise Fiscal")
 st.markdown("---")
 
 # ========================================================================
-# SISTEMA DE ABAS
+# UPLOAD GLOBAL (UMA VEZ SÓ)
+# ========================================================================
+
+st.subheader("📁 Upload de Arquivos SPED")
+st.markdown("Faça upload de até 12 arquivos SPED (.txt ou .zip)")
+
+uploaded_files = st.file_uploader(
+    "Selecione os arquivos",
+    type=['txt', 'zip'],
+    accept_multiple_files=True,
+    help="Arquivos SPED PIS/COFINS em formato .txt ou .zip"
+)
+
+# Inicializa variáveis de dados
+df_completo_c = pd.DataFrame()
+dados_m = None
+
+# ========================================================================
+# PROCESSAMENTO (SE HOUVER UPLOAD)
+# ========================================================================
+
+if uploaded_files:
+    if len(uploaded_files) > 12:
+        st.error("❌ Máximo de 12 arquivos permitidos!")
+        st.stop()
+    
+    st.success(f"✅ {len(uploaded_files)} arquivo(s) carregado(s)")
+    
+    # Lê conteúdo dos arquivos
+    with st.spinner("Lendo arquivos..."):
+        arquivos_conteudo = []
+        
+        for uploaded_file in uploaded_files:
+            try:
+                # Se for ZIP, extrai os arquivos .txt
+                if uploaded_file.name.endswith('.zip'):
+                    with zipfile.ZipFile(uploaded_file, 'r') as z:
+                        for txt_name in z.namelist():
+                            if txt_name.endswith('.txt'):
+                                conteudo = z.read(txt_name).decode('utf-8', errors='replace')
+                                arquivos_conteudo.append((txt_name, conteudo))
+                else:
+                    # Arquivo .txt direto
+                    conteudo = uploaded_file.read().decode('utf-8', errors='replace')
+                    arquivos_conteudo.append((uploaded_file.name, conteudo))
+            except Exception as e:
+                st.error(f"❌ Erro ao ler {uploaded_file.name}: {str(e)}")
+                continue
+    
+    if not arquivos_conteudo:
+        st.error("❌ Nenhum arquivo .txt válido encontrado!")
+        st.stop()
+    
+    # ========================================================================
+    # PROCESSA REGISTROS C (ENTRADA/SAÍDA)
+    # ========================================================================
+    
+    with st.spinner("Processando Registros C (Entrada/Saída)..."):
+        try:
+            # Extrai apenas o conteúdo (segundo elemento da tupla)
+            conteudos = [conteudo for nome, conteudo in arquivos_conteudo]
+            df_completo_c = processar_multiplos_speds(conteudos)
+            
+            if not df_completo_c.empty:
+                st.success(f"✅ Registros C: {len(df_completo_c)} registros processados")
+            else:
+                st.warning("⚠️ Nenhum registro C100/C170 encontrado")
+        except Exception as e:
+            st.error(f"❌ Erro ao processar Registros C: {str(e)}")
+    
+    # ========================================================================
+    # PROCESSA REGISTROS M (APURAÇÃO)
+    # ========================================================================
+    
+    with st.spinner("Processando Registros M (Apuração)..."):
+        try:
+            dados_m = processar_registros_m(arquivos_conteudo)
+            
+            # Conta total de registros M
+            total_m = sum([
+                len(dados_m['m200']),
+                len(dados_m['m105']),
+                len(dados_m['m210']),
+                len(dados_m['m410']),
+                len(dados_m['m600']),
+                len(dados_m['m505']),
+                len(dados_m['m610']),
+                len(dados_m['m810'])
+            ])
+            
+            if total_m > 0:
+                st.success(f"✅ Registros M: {total_m} registros processados")
+            else:
+                st.warning("⚠️ Nenhum registro M encontrado")
+        except Exception as e:
+            st.error(f"❌ Erro ao processar Registros M: {str(e)}")
+            dados_m = None
+    
+    st.markdown("---")
+
+# ========================================================================
+# SISTEMA DE ABAS (DADOS COMPARTILHADOS)
 # ========================================================================
 
 # Cria abas principais
@@ -28,95 +136,32 @@ aba1, aba2 = st.tabs([
 ])
 
 # ========================================================================
-# ABA 1: ENTRADA/SAÍDA (CÓDIGO EXISTENTE)
+# ABA 1: ENTRADA/SAÍDA
 # ========================================================================
 
 with aba1:
-    # Importa e executa o código existente
-    import pandas as pd
-    import zipfile
-    import io
-    from sped_parser import processar_multiplos_speds
-    from dashboards_bigfour import exibir_dashboard_executivo
-    from filtros_avancados import criar_painel_filtros, exibir_resumo_filtros
-    
     st.markdown("## 📥📤 Análise de Entrada e Saída")
     st.markdown("### Relatórios de Notas Fiscais por CFOP")
     st.markdown("---")
     
-    # Upload de arquivos
-    st.subheader("📁 Upload de Arquivos SPED")
-    st.markdown("Faça upload de até 12 arquivos SPED (.txt ou .zip)")
-    
-    uploaded_files = st.file_uploader(
-        "Selecione os arquivos",
-        type=['txt', 'zip'],
-        accept_multiple_files=True,
-        help="Arquivos SPED PIS/COFINS em formato .txt ou .zip",
-        key="upload_entrada_saida"
-    )
-    
-    # Processa arquivos
-    if uploaded_files:
-        if len(uploaded_files) > 12:
-            st.error("❌ Máximo de 12 arquivos permitidos!")
-            st.stop()
-        
-        st.success(f"✅ {len(uploaded_files)} arquivo(s) carregado(s)")
-        
-        # Lê conteúdo dos arquivos
-        with st.spinner("Processando arquivos SPED..."):
-            arquivos_conteudo = []
-            
-            for uploaded_file in uploaded_files:
-                try:
-                    # Se for ZIP, extrai os arquivos .txt
-                    if uploaded_file.name.endswith('.zip'):
-                        with zipfile.ZipFile(uploaded_file, 'r') as z:
-                            for txt_name in z.namelist():
-                                if txt_name.endswith('.txt'):
-                                    conteudo = z.read(txt_name).decode('utf-8', errors='replace')
-                                    arquivos_conteudo.append((txt_name, conteudo))
-                    else:
-                        # Arquivo .txt direto
-                        conteudo = uploaded_file.read().decode('utf-8', errors='replace')
-                        arquivos_conteudo.append((uploaded_file.name, conteudo))
-                except Exception as e:
-                    st.error(f"❌ Erro ao ler {uploaded_file.name}: {str(e)}")
-                    continue
-        
-        if not arquivos_conteudo:
-            st.error("❌ Nenhum arquivo .txt válido encontrado!")
-            st.stop()
-        
-        # Processa os arquivos
-        with st.spinner("Processando registros C100 e C170..."):
-            # Extrai apenas o conteúdo (segundo elemento da tupla)
-            conteudos = [conteudo for nome, conteudo in arquivos_conteudo]
-            df_completo = processar_multiplos_speds(conteudos)
-        
-        if df_completo.empty:
-            st.error("❌ Nenhum dado encontrado nos arquivos SPED!")
-            st.info("💡 Verifique se os arquivos contêm registros C100 e C170")
-            st.stop()
-        
-        st.success(f"✅ {len(df_completo)} registros processados com sucesso!")
+    if df_completo_c.empty:
+        st.info("👆 Faça upload de arquivos SPED para ver os relatórios de Entrada e Saída")
+    else:
+        # ========================================================================
+        # DASHBOARD EXECUTIVO
+        # ========================================================================
+        exibir_dashboard_executivo(df_completo_c)
         
         # ========================================================================
-        # DASHBOARD EXECUTIVO (NOVO)
+        # FILTROS AVANÇADOS
         # ========================================================================
-        exibir_dashboard_executivo(df_completo)
-        
-        # ========================================================================
-        # FILTROS AVANÇADOS (NOVO)
-        # ========================================================================
-        df_filtrado = criar_painel_filtros(df_completo)
+        df_filtrado = criar_painel_filtros(df_completo_c)
         
         # Exibe resumo dos filtros se houver filtros aplicados
-        if len(df_filtrado) < len(df_completo):
+        if len(df_filtrado) < len(df_completo_c):
             st.markdown("---")
             st.markdown("## 🔍 Resultado dos Filtros")
-            exibir_resumo_filtros(df_completo, df_filtrado)
+            exibir_resumo_filtros(df_completo_c, df_filtrado)
         
         # Separa ENTRADA e SAÍDA (usando dados filtrados)
         df_entrada = df_filtrado[df_filtrado['TIPO_OPERACAO'] == 'ENTRADA'].copy()
@@ -283,14 +328,20 @@ with aba1:
             st.metric("PIS", f"R$ {df_saida['VL_PIS'].sum():,.2f}".replace(',', 'TEMP').replace('.', ',').replace('TEMP', '.') if not df_saida.empty else "R$ 0,00")
             st.metric("COFINS", f"R$ {df_saida['VL_COFINS'].sum():,.2f}".replace(',', 'TEMP').replace('.', ',').replace('TEMP', '.') if not df_saida.empty else "R$ 0,00")
             st.metric("TOTAL", f"R$ {df_saida['VL_TOTAL'].sum():,.2f}".replace(',', 'TEMP').replace('.', ',').replace('TEMP', '.') if not df_saida.empty else "R$ 0,00")
-    
-    else:
-        st.info("👆 Faça upload de arquivos SPED para começar a análise")
 
 # ========================================================================
-# ABA 2: APURAÇÃO (CÓDIGO NOVO)
+# ABA 2: APURAÇÃO (REGISTROS M)
 # ========================================================================
 
 with aba2:
-    from aba_apuracao import exibir_aba_apuracao
-    exibir_aba_apuracao()
+    from aba_apuracao import exibir_aba_apuracao_com_dados
+    
+    st.markdown("## 📊 Apuração PIS/COFINS")
+    st.markdown("### Análise de Registros M (Apuração, Créditos e Receitas)")
+    st.markdown("---")
+    
+    if dados_m is None:
+        st.info("👆 Faça upload de arquivos SPED para ver a apuração PIS/COFINS")
+    else:
+        # Exibe a aba com os dados já processados
+        exibir_aba_apuracao_com_dados(dados_m)
