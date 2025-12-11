@@ -11,6 +11,7 @@ from sped_parser import processar_multiplos_speds
 from parser_registros_m import processar_multiplos_speds_m
 from dashboards_bigfour import exibir_dashboard_executivo
 from filtros_avancados import criar_painel_filtros, exibir_resumo_filtros
+from acumuladores_cfop import exibir_acumulador_cfop
 
 # Configuração da página
 st.set_page_config(
@@ -328,6 +329,28 @@ with aba1:
             st.metric("PIS", f"R$ {df_saida['VL_PIS'].sum():,.2f}".replace(',', 'TEMP').replace('.', ',').replace('TEMP', '.') if not df_saida.empty else "R$ 0,00")
             st.metric("COFINS", f"R$ {df_saida['VL_COFINS'].sum():,.2f}".replace(',', 'TEMP').replace('.', ',').replace('TEMP', '.') if not df_saida.empty else "R$ 0,00")
             st.metric("TOTAL", f"R$ {df_saida['VL_TOTAL'].sum():,.2f}".replace(',', 'TEMP').replace('.', ',').replace('TEMP', '.') if not df_saida.empty else "R$ 0,00")
+        
+        # ========================================================================
+        # ACUMULADORES POR CFOP
+        # ========================================================================
+        # OBJETIVO: Totalizar valores por CFOP para análise fiscal detalhada
+        # ENTRADA: CFOPs 1xxx, 2xxx, 3xxx
+        # SAÍDA: CFOPs 5xxx, 6xxx, 7xxx
+        # CAMPOS: BC PIS, PIS, BC COFINS, COFINS, Total
+        # GATILHO: Para adicionar novos campos, editar acumuladores_cfop.py
+        # ========================================================================
+        
+        st.markdown("---")
+        st.markdown("## 📊 ACUMULADORES POR CFOP")
+        st.markdown("**Totalização de valores agrupados por Código Fiscal de Operações**")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            exibir_acumulador_cfop(df_entrada, 'ENTRADA')
+        
+        with col2:
+            exibir_acumulador_cfop(df_saida, 'SAÍDA')
 
 # ========================================================================
 # ABA 2: APURAÇÃO (REGISTROS M)
