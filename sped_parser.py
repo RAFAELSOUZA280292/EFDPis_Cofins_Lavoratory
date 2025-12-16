@@ -64,10 +64,10 @@ def processar_sped(conteudo: str) -> pd.DataFrame:
     for linha in linhas:
         linha = linha.strip()
         if linha.startswith('|0150|'):
-            cod_part = extrair_campo(linha, 1)
-            nome_part = extrair_campo(linha, 2)
-            cod_pais = extrair_campo(linha, 3)
-            cnpj_cpf = extrair_campo(linha, 4)
+            cod_part = extrair_campo(linha, 2)   # Campo [2] = Código do participante
+            nome_part = extrair_campo(linha, 3)  # Campo [3] = Nome/Razão Social
+            cod_pais = extrair_campo(linha, 4)   # Campo [4] = Código do país
+            cnpj_cpf = extrair_campo(linha, 5)   # Campo [5] = CNPJ ou CPF
             
             if cod_part:
                 participantes[cod_part] = {
