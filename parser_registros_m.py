@@ -6,6 +6,7 @@ Processa registros: M200, M105, M210, M410, M600, M505, M610, M810
 import pandas as pd
 import re
 from pathlib import Path
+from tabela_natureza_receita import obter_descricao_natureza_receita, TABELA_NATUREZA_RECEITA
 
 
 # =========================
@@ -124,8 +125,22 @@ def desc_cod_cont(codigo: str) -> str:
 
 
 def desc_nat_rec(codigo: str) -> str:
-    """Retorna descrição do CODIGO_DET"""
+    """
+    Retorna descrição do CODIGO_DET (Natureza da Receita).
+    
+    GATILHO DE MANUTENÇÃO:
+    - Usa tabela_natureza_receita.py (TABELA_NATUREZA_RECEITA)
+    - Para adicionar códigos, editar tabela_natureza_receita.py
+    - Fallback para NAT_REC_DESC (códigos antigos/especiais)
+    """
     c = (codigo or "").strip()
+    
+    # Tenta buscar na tabela completa primeiro
+    desc = obter_descricao_natureza_receita(c)
+    if not desc.startswith('Código'):
+        return desc
+    
+    # Fallback para tabela antiga (códigos especiais)
     return NAT_REC_DESC.get(c, f"(Descrição não cadastrada: {c})")
 
 
