@@ -67,7 +67,11 @@ def processar_sped(conteudo: str) -> pd.DataFrame:
             cod_part = extrair_campo(linha, 2)   # Campo [2] = Código do participante
             nome_part = extrair_campo(linha, 3)  # Campo [3] = Nome/Razão Social
             cod_pais = extrair_campo(linha, 4)   # Campo [4] = Código do país
-            cnpj_cpf = extrair_campo(linha, 5)   # Campo [5] = CNPJ ou CPF
+            cnpj = extrair_campo(linha, 5)       # Campo [5] = CNPJ
+            cpf = extrair_campo(linha, 6)        # Campo [6] = CPF
+            
+            # Se CNPJ estiver vazio, usa CPF
+            cnpj_cpf = cnpj if cnpj else cpf
             
             if cod_part:
                 participantes[cod_part] = {
