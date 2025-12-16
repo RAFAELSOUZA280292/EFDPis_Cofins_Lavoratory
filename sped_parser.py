@@ -57,7 +57,25 @@ def processar_sped(conteudo: str) -> pd.DataFrame:
     # Dicionário para armazenar produtos do registro 0200
     produtos = {}
     
-    # Primeiro passo: Ler todos os registros 0200 (cadastro de produtos)
+    # Dicionário para armazenar participantes do registro 0150
+    participantes = {}
+    
+    # Primeiro passo: Ler todos os registros 0150 (cadastro de participantes)
+    for linha in linhas:
+        linha = linha.strip()
+        if linha.startswith('|0150|'):
+            cod_part = extrair_campo(linha, 1)
+            nome_part = extrair_campo(linha, 2)
+            cod_pais = extrair_campo(linha, 3)
+            cnpj_cpf = extrair_campo(linha, 4)
+            
+            if cod_part:
+                participantes[cod_part] = {
+                    'nome': nome_part,
+                    'cnpj_cpf': cnpj_cpf
+                }
+    
+    # Segundo passo: Ler todos os registros 0200 (cadastro de produtos)
     for linha in linhas:
         linha = linha.strip()
         if linha.startswith('|0200|'):
@@ -75,7 +93,7 @@ def processar_sped(conteudo: str) -> pd.DataFrame:
     c100_atual = {}
     registros = []
     
-    # Segundo passo: Processar C100 e C170
+    # Terceiro passo: Processar C100 e C170
     for linha in linhas:
         linha = linha.strip()
         
@@ -99,19 +117,33 @@ def processar_sped(conteudo: str) -> pd.DataFrame:
             # Busca descrição e NCM no cadastro de produtos
             produto_info = produtos.get(cod_item, {'descricao': '', 'ncm': ''})
             
+            # Busca dados do participante
+            cod_part = c100_atual.get('COD_PART', '')
+            participante_info = participantes.get(cod_part, {'nome': '', 'cnpj_cpf': ''})
+            
             # Extrai dados do item conforme mapeamento correto
             registro = {
                 # Dados do documento (C100)
                 'NUM_DOC': c100_atual.get('NUM_DOC', ''),
                 'CHV_NFE': c100_atual.get('CHV_NFE', ''),
                 'DT_DOC': c100_atual.get('DT_DOC', ''),
-                'COD_PART': c100_atual.get('COD_PART', ''),
+                'COD_PART': cod_part,
+                'NOME_PART': participante_info['nome'],
+                'CNPJ_CPF': participante_info['cnpj_cpf'],
                 
                 # Dados do item (C170)
                 'COD_ITEM': cod_item,
                 'DESCR_ITEM': produto_info['descricao'],
                 'NCM': produto_info['ncm'],
                 'CFOP': extrair_campo(linha, 11),         # Campo [11] = CFOP
+                
+                # Valores ICMS
+                'VL_BC_ICMS': extrair_campo(linha, 13),   # Campo [13] = Base de cálculo ICMS
+                'VL_ICMS': extrair_campo(linha, 15),      # Campo [15] = Valor ICMS
+                'VL_ICMS_ST': extrair_campo(linha, 19),   # Campo [19] = Valor ICMS ST
+                
+                # Valores IPI
+                'VL_IPI': extrair_campo(linha, 24),       # Campo [24] = Valor IPI
                 
                 # Valores PIS
                 'CST_PIS': extrair_campo(linha, 25),      # Campo [25] = CST PIS
@@ -135,7 +167,11 @@ def processar_sped(conteudo: str) -> pd.DataFrame:
     df = pd.DataFrame(registros)
     
     # Converte valores numéricos
-    colunas_numericas = ['VL_BC_PIS', 'ALIQ_PIS', 'VL_PIS', 'VL_BC_COFINS', 'ALIQ_COFINS', 'VL_COFINS']
+    colunas_numericas = [
+        'VL_BC_ICMS', 'VL_ICMS', 'VL_ICMS_ST', 'VL_IPI',
+        'VL_BC_PIS', 'ALIQ_PIS', 'VL_PIS', 
+        'VL_BC_COFINS', 'ALIQ_COFINS', 'VL_COFINS'
+    ]
     for col in colunas_numericas:
         if col in df.columns:
             df[col] = df[col].apply(to_float)

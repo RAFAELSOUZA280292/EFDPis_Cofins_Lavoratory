@@ -201,19 +201,28 @@ with aba1:
             
             # Prepara DataFrame para exibição
             df_entrada_display = df_entrada[[
-                'NUM_DOC', 'CHV_NFE', 'DT_DOC', 'COD_ITEM', 'DESCR_ITEM', 
-                'NCM', 'CFOP', 'CST_PIS', 'VL_BC_PIS', 'VL_PIS', 'CST_COFINS', 'VL_BC_COFINS', 'VL_COFINS', 'VL_TOTAL'
+                'NUM_DOC', 'CHV_NFE', 'DT_DOC', 'COD_PART', 'NOME_PART', 'CNPJ_CPF',
+                'COD_ITEM', 'DESCR_ITEM', 'NCM', 'CFOP', 
+                'VL_BC_ICMS', 'VL_ICMS', 'VL_ICMS_ST', 'VL_IPI',
+                'CST_PIS', 'VL_BC_PIS', 'VL_PIS', 
+                'CST_COFINS', 'VL_BC_COFINS', 'VL_COFINS', 'VL_TOTAL'
             ]].copy()
             
             # Renomeia colunas para exibição
             df_entrada_display.columns = [
-                'Número NF', 'Chave de Acesso', 'Data Emissão', 'Cód. Produto', 
-                'Produto', 'NCM', 'CFOP', 'CST PIS', 'Base PIS', 'Valor PIS', 
+                'Número NF', 'Chave de Acesso', 'Data Emissão', 
+                'Cód. Participante', 'Nome Participante', 'CNPJ/CPF',
+                'Cód. Produto', 'Produto', 'NCM', 'CFOP',
+                'BC ICMS', 'ICMS', 'ICMS-ST', 'IPI',
+                'CST PIS', 'Base PIS', 'Valor PIS', 
                 'CST COFINS', 'Base COFINS', 'Valor COFINS', 'Total'
             ]
             
             # Formata valores monetários no padrão brasileiro
-            colunas_monetarias = ['Base PIS', 'Valor PIS', 'Base COFINS', 'Valor COFINS', 'Total']
+            colunas_monetarias = [
+                'BC ICMS', 'ICMS', 'ICMS-ST', 'IPI',
+                'Base PIS', 'Valor PIS', 'Base COFINS', 'Valor COFINS', 'Total'
+            ]
             for col in colunas_monetarias:
                 df_entrada_display[col] = df_entrada_display[col].apply(
                     lambda x: f"R$ {x:,.2f}".replace(',', 'TEMP').replace('.', ',').replace('TEMP', '.')
@@ -270,19 +279,28 @@ with aba1:
             
             # Prepara DataFrame para exibição
             df_saida_display = df_saida[[
-                'NUM_DOC', 'CHV_NFE', 'DT_DOC', 'COD_ITEM', 'DESCR_ITEM', 
-                'NCM', 'CFOP', 'CST_PIS', 'VL_BC_PIS', 'VL_PIS', 'CST_COFINS', 'VL_BC_COFINS', 'VL_COFINS', 'VL_TOTAL'
+                'NUM_DOC', 'CHV_NFE', 'DT_DOC', 'COD_PART', 'NOME_PART', 'CNPJ_CPF',
+                'COD_ITEM', 'DESCR_ITEM', 'NCM', 'CFOP', 
+                'VL_BC_ICMS', 'VL_ICMS', 'VL_ICMS_ST', 'VL_IPI',
+                'CST_PIS', 'VL_BC_PIS', 'VL_PIS', 
+                'CST_COFINS', 'VL_BC_COFINS', 'VL_COFINS', 'VL_TOTAL'
             ]].copy()
             
             # Renomeia colunas para exibição
             df_saida_display.columns = [
-                'Número NF', 'Chave de Acesso', 'Data Emissão', 'Cód. Produto', 
-                'Produto', 'NCM', 'CFOP', 'CST PIS', 'Base PIS', 'Valor PIS', 
+                'Número NF', 'Chave de Acesso', 'Data Emissão', 
+                'Cód. Participante', 'Nome Participante', 'CNPJ/CPF',
+                'Cód. Produto', 'Produto', 'NCM', 'CFOP',
+                'BC ICMS', 'ICMS', 'ICMS-ST', 'IPI',
+                'CST PIS', 'Base PIS', 'Valor PIS', 
                 'CST COFINS', 'Base COFINS', 'Valor COFINS', 'Total'
             ]
             
             # Formata valores monetários no padrão brasileiro
-            colunas_monetarias = ['Base PIS', 'Valor PIS', 'Base COFINS', 'Valor COFINS', 'Total']
+            colunas_monetarias = [
+                'BC ICMS', 'ICMS', 'ICMS-ST', 'IPI',
+                'Base PIS', 'Valor PIS', 'Base COFINS', 'Valor COFINS', 'Total'
+            ]
             for col in colunas_monetarias:
                 df_saida_display[col] = df_saida_display[col].apply(
                     lambda x: f"R$ {x:,.2f}".replace(',', 'TEMP').replace('.', ',').replace('TEMP', '.')
