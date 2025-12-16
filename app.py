@@ -131,8 +131,9 @@ if uploaded_files:
 # ========================================================================
 
 # Cria abas principais
-aba1, aba2 = st.tabs([
+aba1, aba2, aba3 = st.tabs([
     "📥📤 Entrada/Saída (Registros C)",
+    "💰 PIS/COFINS Apurado",
     "📊 Apuração (Registros M)"
 ])
 
@@ -353,10 +354,23 @@ with aba1:
             exibir_acumulador_cfop(df_saida, 'SAÍDA')
 
 # ========================================================================
-# ABA 2: APURAÇÃO (REGISTROS M)
+# ABA 2: PIS/COFINS APURADO (EVOLUÇÃO MENSAL)
 # ========================================================================
 
 with aba2:
+    from aba_apuracao_mensal import exibir_aba_apuracao_mensal
+    
+    if dados_m is None:
+        st.info("👆 Faça upload de arquivos SPED para ver a evolução mensal de PIS/COFINS")
+    else:
+        # Exibe a aba com os dados já processados
+        exibir_aba_apuracao_mensal(dados_m)
+
+# ========================================================================
+# ABA 3: APURAÇÃO (REGISTROS M)
+# ========================================================================
+
+with aba3:
     from aba_apuracao import exibir_aba_apuracao_com_dados
     
     st.markdown("## 📊 Apuração PIS/COFINS")
