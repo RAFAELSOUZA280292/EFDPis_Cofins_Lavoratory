@@ -131,9 +131,10 @@ if uploaded_files:
 # ========================================================================
 
 # Cria abas principais
-aba1, aba2, aba3 = st.tabs([
-    "📥📤 Entrada/Saída (Registros C)",
+aba1, aba2, aba3, aba4 = st.tabs([
+    "📥📤 Entrada/Saída",
     "💰 PIS/COFINS Apurado",
+    "🏆 Rankings",
     "📊 Apuração (Registros M)"
 ])
 
@@ -385,10 +386,27 @@ with aba2:
         exibir_aba_apuracao_mensal(dados_m)
 
 # ========================================================================
-# ABA 3: APURAÇÃO (REGISTROS M)
+# ABA 3: RANKINGS
 # ========================================================================
 
 with aba3:
+    from aba_rankings import exibir_aba_rankings
+    
+    if df_completo_c.empty:
+        st.info("👆 Faça upload de arquivos SPED para ver os rankings de fornecedores e clientes")
+    else:
+        # Separa entrada e saída
+        df_entrada_rankings = df_completo_c[df_completo_c['TIPO_OPERACAO'] == 'ENTRADA']
+        df_saida_rankings = df_completo_c[df_completo_c['TIPO_OPERACAO'] == 'SAÍDA']
+        
+        # Exibe a aba com os dados
+        exibir_aba_rankings(df_entrada_rankings, df_saida_rankings)
+
+# ========================================================================
+# ABA 4: APURAÇÃO (REGISTROS M)
+# ========================================================================
+
+with aba4:
     from aba_apuracao import exibir_aba_apuracao_com_dados
     
     st.markdown("## 📊 Apuração PIS/COFINS")
