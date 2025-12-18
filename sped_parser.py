@@ -60,6 +60,14 @@ def processar_sped(conteudo: str) -> pd.DataFrame:
     # Dicionário para armazenar participantes do registro 0150
     participantes = {}
     
+    # Mapeamento de código IBGE para UF (primeiros 2 dígitos)
+    CODIGO_UF = {
+        '11': 'RO', '12': 'AC', '13': 'AM', '14': 'RR', '15': 'PA', '16': 'AP', '17': 'TO',
+        '21': 'MA', '22': 'PI', '23': 'CE', '24': 'RN', '25': 'PB', '26': 'PE', '27': 'AL',
+        '28': 'SE', '29': 'BA', '31': 'MG', '32': 'ES', '33': 'RJ', '35': 'SP', '41': 'PR',
+        '42': 'SC', '43': 'RS', '50': 'MS', '51': 'MT', '52': 'GO', '53': 'DF'
+    }
+    
     # Primeiro passo: Ler todos os registros 0150 (cadastro de participantes)
     for linha in linhas:
         linha = linha.strip()
@@ -69,14 +77,22 @@ def processar_sped(conteudo: str) -> pd.DataFrame:
             cod_pais = extrair_campo(linha, 4)   # Campo [4] = Código do país
             cnpj = extrair_campo(linha, 5)       # Campo [5] = CNPJ
             cpf = extrair_campo(linha, 6)        # Campo [6] = CPF
+            cod_municipio = extrair_campo(linha, 8)  # Campo [8] = Código do município IBGE
             
             # Se CNPJ estiver vazio, usa CPF
             cnpj_cpf = cnpj if cnpj else cpf
             
+            # Extrai UF do código do município (primeiros 2 dígitos)
+            uf = 'Não Identificado'
+            if cod_municipio and len(str(cod_municipio)) >= 2:
+                cod_uf = str(cod_municipio)[:2]
+                uf = CODIGO_UF.get(cod_uf, 'Não Identificado')
+            
             if cod_part:
                 participantes[cod_part] = {
                     'nome': nome_part,
-                    'cnpj_cpf': cnpj_cpf
+                    'cnpj_cpf': cnpj_cpf,
+                    'uf': uf
                 }
     
     # Segundo passo: Ler todos os registros 0200 (cadastro de produtos)
@@ -123,7 +139,7 @@ def processar_sped(conteudo: str) -> pd.DataFrame:
             
             # Busca dados do participante
             cod_part = c100_atual.get('COD_PART', '')
-            participante_info = participantes.get(cod_part, {'nome': '', 'cnpj_cpf': ''})
+            participante_info = participantes.get(cod_part, {'nome': '', 'cnpj_cpf': '', 'uf': 'Não Identificado'})
             
             # Extrai dados do item conforme mapeamento correto
             registro = {
@@ -134,6 +150,7 @@ def processar_sped(conteudo: str) -> pd.DataFrame:
                 'COD_PART': cod_part,
                 'NOME_PART': participante_info['nome'],
                 'CNPJ_CPF': participante_info['cnpj_cpf'],
+                'UF_PART': participante_info['uf'],
                 
                 # Dados do item (C170)
                 'COD_ITEM': cod_item,

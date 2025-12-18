@@ -142,13 +142,25 @@ def criar_distribuicao_uf(df, tipo='Fornecedor'):
     Retorna:
         pd.DataFrame: Distribuição por UF
     """
-    if df.empty:
+    if df.empty or 'UF_PART' not in df.columns:
         return pd.DataFrame()
     
-    # Extrai UF do código do município (campo COD_MUN no registro 0150)
-    # Como não temos COD_MUN no DataFrame, vamos usar uma abordagem alternativa
-    # Por enquanto, retornar DataFrame vazio e implementar depois
-    return pd.DataFrame()
+    # Agrupa por UF
+    distribuicao = df.groupby('UF_PART').agg({
+        'VL_TOTAL': 'sum'
+    }).reset_index()
+    
+    # Calcula percentual
+    total_geral = distribuicao['VL_TOTAL'].sum()
+    distribuicao['PERCENTUAL'] = (distribuicao['VL_TOTAL'] / total_geral * 100).round(2)
+    
+    # Ordena por valor total decrescente
+    distribuicao = distribuicao.sort_values('VL_TOTAL', ascending=False)
+    
+    # Renomeia colunas
+    distribuicao.columns = ['UF', 'Total', 'Percentual']
+    
+    return distribuicao
 
 
 def criar_ranking_ncm(df, tipo='Compras'):
@@ -205,6 +217,52 @@ def criar_ranking_produtos(df, tipo='Compras'):
     ranking.columns = ['Código', 'Produto', 'Total']
     
     return ranking
+
+
+def criar_mapa_brasil(df_uf, titulo):
+    """
+    Cria mapa coroplético do Brasil.
+    
+    Parâmetros:
+        df_uf (pd.DataFrame): DataFrame com distribuição por UF
+        titulo (str): Título do mapa
+    
+    Retorna:
+        plotly.graph_objects.Figure: Mapa
+    """
+    if df_uf.empty:
+        return None
+    
+    # Cria mapa coroplético
+    fig = px.choropleth(
+        df_uf,
+        locations='UF',
+        locationmode='USA-states',  # Usar modo genérico
+        color='Total',
+        hover_name='UF',
+        hover_data={
+            'Total': ':,.2f',
+            'Percentual': ':.2f'
+        },
+        color_continuous_scale='Blues',
+        labels={'Total': 'Valor (R$)', 'Percentual': '% do Total'},
+        title=titulo
+    )
+    
+    # Ajusta layout para focar no Brasil
+    fig.update_geos(
+        scope='south america',
+        center={'lat': -14, 'lon': -55},
+        projection_scale=3.5,
+        visible=False
+    )
+    
+    fig.update_layout(
+        height=500,
+        template='plotly_white'
+    )
+    
+    return fig
 
 
 def criar_grafico_barras_horizontal(df, coluna_label, coluna_valor, titulo, cor='#1f77b4'):
@@ -293,6 +351,30 @@ def exibir_aba_rankings(df_entrada, df_saida):
             tabela_fornecedores['Total'] = tabela_fornecedores['Total'].apply(formatar_moeda_br)
             st.dataframe(tabela_fornecedores, use_container_width=True, hide_index=True)
         
+        # Distribuição Geográfica (Fornecedores)
+        st.markdown('#### 📍 Distribuição Geográfica - Fornecedores')
+        distribuicao_uf_fornecedores = criar_distribuicao_uf(df_entrada, 'Fornecedor')
+        
+        if not distribuicao_uf_fornecedores.empty:
+            col1, col2 = st.columns([2, 1])
+            
+            with col1:
+                # Mapa do Brasil
+                fig_mapa_fornecedores = criar_mapa_brasil(
+                    distribuicao_uf_fornecedores,
+                    'Distribuição de Compras por UF'
+                )
+                if fig_mapa_fornecedores:
+                    st.plotly_chart(fig_mapa_fornecedores, use_container_width=True)
+            
+            with col2:
+                # Tabela Top 10 UF
+                st.markdown('**Top 10 UF**')
+                tabela_uf_fornecedores = distribuicao_uf_fornecedores.head(10).copy()
+                tabela_uf_fornecedores['Total'] = tabela_uf_fornecedores['Total'].apply(formatar_moeda_br)
+                tabela_uf_fornecedores['Percentual'] = tabela_uf_fornecedores['Percentual'].apply(lambda x: f'{x:.2f}%')
+                st.dataframe(tabela_uf_fornecedores, use_container_width=True, hide_index=True, height=500)
+        
         # Ranking de NCM (Compras)
         st.markdown('#### 📦 Top NCM - Compras')
         ranking_ncm_compras = criar_ranking_ncm(df_entrada, 'Compras')
@@ -368,6 +450,30 @@ def exibir_aba_rankings(df_entrada, df_saida):
             tabela_clientes['COFINS'] = tabela_clientes['COFINS'].apply(formatar_moeda_br)
             tabela_clientes['Total'] = tabela_clientes['Total'].apply(formatar_moeda_br)
             st.dataframe(tabela_clientes, use_container_width=True, hide_index=True)
+        
+        # Distribuição Geográfica (Clientes)
+        st.markdown('#### 📍 Distribuição Geográfica - Clientes')
+        distribuicao_uf_clientes = criar_distribuicao_uf(df_saida, 'Cliente')
+        
+        if not distribuicao_uf_clientes.empty:
+            col1, col2 = st.columns([2, 1])
+            
+            with col1:
+                # Mapa do Brasil
+                fig_mapa_clientes = criar_mapa_brasil(
+                    distribuicao_uf_clientes,
+                    'Distribuição de Vendas por UF'
+                )
+                if fig_mapa_clientes:
+                    st.plotly_chart(fig_mapa_clientes, use_container_width=True)
+            
+            with col2:
+                # Tabela Top 10 UF
+                st.markdown('**Top 10 UF**')
+                tabela_uf_clientes = distribuicao_uf_clientes.head(10).copy()
+                tabela_uf_clientes['Total'] = tabela_uf_clientes['Total'].apply(formatar_moeda_br)
+                tabela_uf_clientes['Percentual'] = tabela_uf_clientes['Percentual'].apply(lambda x: f'{x:.2f}%')
+                st.dataframe(tabela_uf_clientes, use_container_width=True, hide_index=True, height=500)
         
         # Ranking de NCM (Vendas)
         st.markdown('#### 📦 Top NCM - Vendas')
