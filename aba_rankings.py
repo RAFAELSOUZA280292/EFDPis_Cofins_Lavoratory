@@ -219,48 +219,60 @@ def criar_ranking_produtos(df, tipo='Compras'):
     return ranking
 
 
-def criar_mapa_brasil(df_uf, titulo):
+def criar_grafico_uf(df_uf, titulo, cor='#1f77b4'):
     """
-    Cria mapa coroplético do Brasil.
+    Cria gráfico de barras horizontal por UF com gradiente de cores.
     
     Parâmetros:
         df_uf (pd.DataFrame): DataFrame com distribuição por UF
-        titulo (str): Título do mapa
+        titulo (str): Título do gráfico
+        cor (str): Cor base para o gradiente
     
     Retorna:
-        plotly.graph_objects.Figure: Mapa
+        plotly.graph_objects.Figure: Gráfico
     """
     if df_uf.empty:
         return None
     
-    # Cria mapa coroplético
-    fig = px.choropleth(
-        df_uf,
-        locations='UF',
-        locationmode='USA-states',  # Usar modo genérico
-        color='Total',
-        hover_name='UF',
-        hover_data={
-            'Total': ':,.2f',
-            'Percentual': ':.2f'
-        },
-        color_continuous_scale='Blues',
-        labels={'Total': 'Valor (R$)', 'Percentual': '% do Total'},
-        title=titulo
+    # Pega top 10 UF
+    df_top = df_uf.head(10).copy()
+    
+    # Inverte ordem para exibir maior no topo
+    df_top = df_top.iloc[::-1]
+    
+    # Cria labels com percentual
+    df_top['Label'] = df_top.apply(
+        lambda row: f"{row['UF']} ({row['Percentual']:.1f}%)",
+        axis=1
     )
     
-    # Ajusta layout para focar no Brasil
-    fig.update_geos(
-        scope='south america',
-        center={'lat': -14, 'lon': -55},
-        projection_scale=3.5,
-        visible=False
-    )
+    # Cria gráfico de barras
+    fig = go.Figure()
+    
+    fig.add_trace(go.Bar(
+        x=df_top['Total'],
+        y=df_top['Label'],
+        orientation='h',
+        marker=dict(
+            color=df_top['Total'],
+            colorscale='Blues',
+            showscale=False
+        ),
+        text=df_top['Total'].apply(lambda x: formatar_moeda_br(x)),
+        textposition='outside',
+        hovertemplate='<b>%{y}</b><br>Valor: R$ %{x:,.2f}<extra></extra>'
+    ))
     
     fig.update_layout(
-        height=500,
-        template='plotly_white'
+        title=titulo,
+        xaxis_title='Valor (R$)',
+        yaxis_title='',
+        height=400,
+        template='plotly_white',
+        showlegend=False
     )
+    
+    fig.update_xaxes(tickformat=',.2f', tickprefix='R$ ')
     
     return fig
 
@@ -359,21 +371,22 @@ def exibir_aba_rankings(df_entrada, df_saida):
             col1, col2 = st.columns([2, 1])
             
             with col1:
-                # Mapa do Brasil
-                fig_mapa_fornecedores = criar_mapa_brasil(
+                # Gráfico de barras por UF
+                fig_uf_fornecedores = criar_grafico_uf(
                     distribuicao_uf_fornecedores,
-                    'Distribuição de Compras por UF'
+                    'Top 10 UF - Compras',
+                    cor='#1f77b4'
                 )
-                if fig_mapa_fornecedores:
-                    st.plotly_chart(fig_mapa_fornecedores, use_container_width=True)
+                if fig_uf_fornecedores:
+                    st.plotly_chart(fig_uf_fornecedores, use_container_width=True)
             
             with col2:
                 # Tabela Top 10 UF
-                st.markdown('**Top 10 UF**')
+                st.markdown('**Detalhamento**')
                 tabela_uf_fornecedores = distribuicao_uf_fornecedores.head(10).copy()
                 tabela_uf_fornecedores['Total'] = tabela_uf_fornecedores['Total'].apply(formatar_moeda_br)
                 tabela_uf_fornecedores['Percentual'] = tabela_uf_fornecedores['Percentual'].apply(lambda x: f'{x:.2f}%')
-                st.dataframe(tabela_uf_fornecedores, use_container_width=True, hide_index=True, height=500)
+                st.dataframe(tabela_uf_fornecedores, use_container_width=True, hide_index=True, height=400)
         
         # Ranking de NCM (Compras)
         st.markdown('#### 📦 Top NCM - Compras')
@@ -459,21 +472,22 @@ def exibir_aba_rankings(df_entrada, df_saida):
             col1, col2 = st.columns([2, 1])
             
             with col1:
-                # Mapa do Brasil
-                fig_mapa_clientes = criar_mapa_brasil(
+                # Gráfico de barras por UF
+                fig_uf_clientes = criar_grafico_uf(
                     distribuicao_uf_clientes,
-                    'Distribuição de Vendas por UF'
+                    'Top 10 UF - Vendas',
+                    cor='#d62728'
                 )
-                if fig_mapa_clientes:
-                    st.plotly_chart(fig_mapa_clientes, use_container_width=True)
+                if fig_uf_clientes:
+                    st.plotly_chart(fig_uf_clientes, use_container_width=True)
             
             with col2:
                 # Tabela Top 10 UF
-                st.markdown('**Top 10 UF**')
+                st.markdown('**Detalhamento**')
                 tabela_uf_clientes = distribuicao_uf_clientes.head(10).copy()
                 tabela_uf_clientes['Total'] = tabela_uf_clientes['Total'].apply(formatar_moeda_br)
                 tabela_uf_clientes['Percentual'] = tabela_uf_clientes['Percentual'].apply(lambda x: f'{x:.2f}%')
-                st.dataframe(tabela_uf_clientes, use_container_width=True, hide_index=True, height=500)
+                st.dataframe(tabela_uf_clientes, use_container_width=True, hide_index=True, height=400)
         
         # Ranking de NCM (Vendas)
         st.markdown('#### 📦 Top NCM - Vendas')

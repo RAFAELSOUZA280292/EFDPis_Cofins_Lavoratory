@@ -157,6 +157,7 @@ def processar_sped(conteudo: str) -> pd.DataFrame:
                 'DESCR_ITEM': produto_info['descricao'],
                 'NCM': produto_info['ncm'],
                 'CFOP': extrair_campo(linha, 11),         # Campo [11] = CFOP
+                'VL_ITEM': extrair_campo(linha, 10),      # Campo [10] = Valor total do item
                 
                 # Valores ICMS
                 'VL_BC_ICMS': extrair_campo(linha, 13),   # Campo [13] = Base de cálculo ICMS
@@ -189,6 +190,7 @@ def processar_sped(conteudo: str) -> pd.DataFrame:
     
     # Converte valores numéricos
     colunas_numericas = [
+        'VL_ITEM',
         'VL_BC_ICMS', 'VL_ICMS', 'VL_ICMS_ST', 'VL_IPI',
         'VL_BC_PIS', 'ALIQ_PIS', 'VL_PIS', 
         'VL_BC_COFINS', 'ALIQ_COFINS', 'VL_COFINS'
@@ -203,8 +205,12 @@ def processar_sped(conteudo: str) -> pd.DataFrame:
     else:
         df['TIPO_OPERACAO'] = 'NÃO CLASSIFICADO'
     
-    # Calcula valor total
-    df['VL_TOTAL'] = df['VL_PIS'] + df['VL_COFINS']
+    # Calcula valor total de PIS+COFINS (para referência)
+    df['VL_PIS_COFINS'] = df['VL_PIS'] + df['VL_COFINS']
+    
+    # VL_TOTAL agora é o valor total do item (campo 10 do C170)
+    # Isso inclui o valor da mercadoria/serviço completo
+    df['VL_TOTAL'] = df['VL_ITEM']
     
     return df
 
