@@ -157,7 +157,7 @@ def processar_sped(conteudo: str) -> pd.DataFrame:
                 'DESCR_ITEM': produto_info['descricao'],
                 'NCM': produto_info['ncm'],
                 'CFOP': extrair_campo(linha, 11),         # Campo [11] = CFOP
-                'VL_ITEM': extrair_campo(linha, 10),      # Campo [10] = Valor total do item
+                'VL_ITEM': extrair_campo(linha, 7),       # Campo [7] = Valor total do item
                 
                 # Valores ICMS
                 'VL_BC_ICMS': extrair_campo(linha, 13),   # Campo [13] = Base de cálculo ICMS

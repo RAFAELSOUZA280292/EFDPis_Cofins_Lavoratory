@@ -87,8 +87,10 @@ def criar_ranking_fornecedores(df_entrada):
         return pd.DataFrame()
     
     # Agrupa por fornecedor
-    ranking = df_entrada.groupby(['COD_PART', 'NOME_PART']).agg({
+    ranking = df_entrada.groupby(['COD_PART', 'NOME_PART', 'UF_PART']).agg({
+        'VL_BC_PIS': 'sum',
         'VL_PIS': 'sum',
+        'VL_BC_COFINS': 'sum',
         'VL_COFINS': 'sum',
         'VL_TOTAL': 'sum'
     }).reset_index()
@@ -97,7 +99,7 @@ def criar_ranking_fornecedores(df_entrada):
     ranking = ranking.sort_values('VL_TOTAL', ascending=False).head(TOP_N)
     
     # Renomeia colunas
-    ranking.columns = ['Código', 'Fornecedor', 'PIS', 'COFINS', 'Total']
+    ranking.columns = ['Código', 'Fornecedor', 'UF', 'BC PIS', 'PIS', 'BC COFINS', 'COFINS', 'Total de Produtos']
     
     return ranking
 
@@ -116,8 +118,10 @@ def criar_ranking_clientes(df_saida):
         return pd.DataFrame()
     
     # Agrupa por cliente
-    ranking = df_saida.groupby(['COD_PART', 'NOME_PART']).agg({
+    ranking = df_saida.groupby(['COD_PART', 'NOME_PART', 'UF_PART']).agg({
+        'VL_BC_PIS': 'sum',
         'VL_PIS': 'sum',
+        'VL_BC_COFINS': 'sum',
         'VL_COFINS': 'sum',
         'VL_TOTAL': 'sum'
     }).reset_index()
@@ -126,7 +130,7 @@ def criar_ranking_clientes(df_saida):
     ranking = ranking.sort_values('VL_TOTAL', ascending=False).head(TOP_N)
     
     # Renomeia colunas
-    ranking.columns = ['Código', 'Cliente', 'PIS', 'COFINS', 'Total']
+    ranking.columns = ['Código', 'Cliente', 'UF', 'BC PIS', 'PIS', 'BC COFINS', 'COFINS', 'Total de Produtos']
     
     return ranking
 
@@ -187,6 +191,34 @@ def criar_ranking_ncm(df, tipo='Compras'):
     
     # Renomeia colunas
     ranking.columns = ['NCM', 'Total']
+    
+    return ranking
+
+
+def criar_ranking_ncm_por_uf(df, tipo='Compras'):
+    """
+    Cria ranking de NCM por UF.
+    
+    Parâmetros:
+        df (pd.DataFrame): DataFrame com notas fiscais
+        tipo (str): 'Compras' ou 'Vendas'
+    
+    Retorna:
+        pd.DataFrame: Ranking de NCM por UF
+    """
+    if df.empty or 'NCM' not in df.columns or 'UF_PART' not in df.columns:
+        return pd.DataFrame()
+    
+    # Agrupa por NCM e UF
+    ranking = df.groupby(['NCM', 'UF_PART']).agg({
+        'VL_TOTAL': 'sum'
+    }).reset_index()
+    
+    # Ordena por valor total decrescente
+    ranking = ranking.sort_values('VL_TOTAL', ascending=False).head(TOP_N)
+    
+    # Renomeia colunas
+    ranking.columns = ['NCM', 'UF', 'Total de Produtos']
     
     return ranking
 
@@ -349,7 +381,7 @@ def exibir_aba_rankings(df_entrada, df_saida):
             fig_fornecedores = criar_grafico_barras_horizontal(
                 ranking_fornecedores,
                 'Fornecedor',
-                'Total',
+                'Total de Produtos',
                 f'Top {TOP_N} Fornecedores por Valor Total',
                 cor='#1f77b4'
             )
@@ -358,9 +390,27 @@ def exibir_aba_rankings(df_entrada, df_saida):
             # Tabela
             st.markdown('#### 📋 Detalhamento')
             tabela_fornecedores = ranking_fornecedores.copy()
+            
+            # Formata valores
+            tabela_fornecedores['BC PIS'] = tabela_fornecedores['BC PIS'].apply(formatar_moeda_br)
             tabela_fornecedores['PIS'] = tabela_fornecedores['PIS'].apply(formatar_moeda_br)
+            tabela_fornecedores['BC COFINS'] = tabela_fornecedores['BC COFINS'].apply(formatar_moeda_br)
             tabela_fornecedores['COFINS'] = tabela_fornecedores['COFINS'].apply(formatar_moeda_br)
-            tabela_fornecedores['Total'] = tabela_fornecedores['Total'].apply(formatar_moeda_br)
+            tabela_fornecedores['Total de Produtos'] = tabela_fornecedores['Total de Produtos'].apply(formatar_moeda_br)
+            
+            # Adiciona linha de TOTAL
+            total_row = pd.DataFrame([{
+                'Código': '',
+                'Fornecedor': 'TOTAL',
+                'UF': '',
+                'BC PIS': formatar_moeda_br(ranking_fornecedores['BC PIS'].sum()),
+                'PIS': formatar_moeda_br(ranking_fornecedores['PIS'].sum()),
+                'BC COFINS': formatar_moeda_br(ranking_fornecedores['BC COFINS'].sum()),
+                'COFINS': formatar_moeda_br(ranking_fornecedores['COFINS'].sum()),
+                'Total de Produtos': formatar_moeda_br(ranking_fornecedores['Total de Produtos'].sum())
+            }])
+            
+            tabela_fornecedores = pd.concat([tabela_fornecedores, total_row], ignore_index=True)
             st.dataframe(tabela_fornecedores, use_container_width=True, hide_index=True)
         
         # Distribuição Geográfica (Fornecedores)
@@ -412,6 +462,16 @@ def exibir_aba_rankings(df_entrada, df_saida):
                 tabela_ncm_compras['Total'] = tabela_ncm_compras['Total'].apply(formatar_moeda_br)
                 st.dataframe(tabela_ncm_compras, use_container_width=True, hide_index=True, height=400)
         
+        # Ranking de NCM por UF (Compras)
+        st.markdown('#### 📍 Top NCM por UF - Compras')
+        ranking_ncm_uf_compras = criar_ranking_ncm_por_uf(df_entrada, 'Compras')
+        
+        if not ranking_ncm_uf_compras.empty:
+            # Tabela
+            tabela_ncm_uf_compras = ranking_ncm_uf_compras.copy()
+            tabela_ncm_uf_compras['Total de Produtos'] = tabela_ncm_uf_compras['Total de Produtos'].apply(formatar_moeda_br)
+            st.dataframe(tabela_ncm_uf_compras, use_container_width=True, hide_index=True)
+        
         # Ranking de Produtos (Compras)
         st.markdown('#### 🛒 Top Produtos - Compras')
         ranking_produtos_compras = criar_ranking_produtos(df_entrada, 'Compras')
@@ -450,7 +510,7 @@ def exibir_aba_rankings(df_entrada, df_saida):
             fig_clientes = criar_grafico_barras_horizontal(
                 ranking_clientes,
                 'Cliente',
-                'Total',
+                'Total de Produtos',
                 f'Top {TOP_N} Clientes por Valor Total',
                 cor='#d62728'
             )
@@ -459,9 +519,27 @@ def exibir_aba_rankings(df_entrada, df_saida):
             # Tabela
             st.markdown('#### 📋 Detalhamento')
             tabela_clientes = ranking_clientes.copy()
+            
+            # Formata valores
+            tabela_clientes['BC PIS'] = tabela_clientes['BC PIS'].apply(formatar_moeda_br)
             tabela_clientes['PIS'] = tabela_clientes['PIS'].apply(formatar_moeda_br)
+            tabela_clientes['BC COFINS'] = tabela_clientes['BC COFINS'].apply(formatar_moeda_br)
             tabela_clientes['COFINS'] = tabela_clientes['COFINS'].apply(formatar_moeda_br)
-            tabela_clientes['Total'] = tabela_clientes['Total'].apply(formatar_moeda_br)
+            tabela_clientes['Total de Produtos'] = tabela_clientes['Total de Produtos'].apply(formatar_moeda_br)
+            
+            # Adiciona linha de TOTAL
+            total_row = pd.DataFrame([{
+                'Código': '',
+                'Cliente': 'TOTAL',
+                'UF': '',
+                'BC PIS': formatar_moeda_br(ranking_clientes['BC PIS'].sum()),
+                'PIS': formatar_moeda_br(ranking_clientes['PIS'].sum()),
+                'BC COFINS': formatar_moeda_br(ranking_clientes['BC COFINS'].sum()),
+                'COFINS': formatar_moeda_br(ranking_clientes['COFINS'].sum()),
+                'Total de Produtos': formatar_moeda_br(ranking_clientes['Total de Produtos'].sum())
+            }])
+            
+            tabela_clientes = pd.concat([tabela_clientes, total_row], ignore_index=True)
             st.dataframe(tabela_clientes, use_container_width=True, hide_index=True)
         
         # Distribuição Geográfica (Clientes)
@@ -512,6 +590,16 @@ def exibir_aba_rankings(df_entrada, df_saida):
                 tabela_ncm_vendas = ranking_ncm_vendas.copy()
                 tabela_ncm_vendas['Total'] = tabela_ncm_vendas['Total'].apply(formatar_moeda_br)
                 st.dataframe(tabela_ncm_vendas, use_container_width=True, hide_index=True, height=400)
+        
+        # Ranking de NCM por UF (Vendas)
+        st.markdown('#### 📍 Top NCM por UF - Vendas')
+        ranking_ncm_uf_vendas = criar_ranking_ncm_por_uf(df_saida, 'Vendas')
+        
+        if not ranking_ncm_uf_vendas.empty:
+            # Tabela
+            tabela_ncm_uf_vendas = ranking_ncm_uf_vendas.copy()
+            tabela_ncm_uf_vendas['Total de Produtos'] = tabela_ncm_uf_vendas['Total de Produtos'].apply(formatar_moeda_br)
+            st.dataframe(tabela_ncm_uf_vendas, use_container_width=True, hide_index=True)
         
         # Ranking de Produtos (Vendas)
         st.markdown('#### 🛒 Top Produtos - Vendas')
