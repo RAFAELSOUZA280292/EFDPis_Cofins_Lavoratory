@@ -202,7 +202,7 @@ with aba1:
             
             # Prepara DataFrame para exibição
             df_entrada_display = df_entrada[[
-                'NUM_DOC', 'CHV_NFE', 'DT_DOC', 'COD_PART', 'NOME_PART', 'CNPJ_CPF',
+                'NUM_DOC', 'CHV_NFE', 'DT_DOC', 'COD_PART', 'NOME_PART', 'CNPJ_CPF', 'UF_PART',
                 'COD_ITEM', 'DESCR_ITEM', 'NCM', 'CFOP', 
                 'VL_TOTAL',  # Total do item (antes dos tributos)
                 'VL_BC_ICMS', 'VL_ICMS', 'VL_ICMS_ST', 'VL_IPI',
@@ -213,7 +213,7 @@ with aba1:
             # Renomeia colunas para exibição
             df_entrada_display.columns = [
                 'Número NF', 'Chave de Acesso', 'Data Emissão', 
-                'Cód. Participante', 'Nome Participante', 'CNPJ/CPF',
+                'Cód. Participante', 'Nome Participante', 'CNPJ/CPF', 'UF',
                 'Cód. Produto', 'Produto', 'NCM', 'CFOP',
                 'Total',  # Total do item
                 'BC ICMS', 'ICMS', 'ICMS-ST', 'IPI',
@@ -283,7 +283,7 @@ with aba1:
             
             # Prepara DataFrame para exibição
             df_saida_display = df_saida[[
-                'NUM_DOC', 'CHV_NFE', 'DT_DOC', 'COD_PART', 'NOME_PART', 'CNPJ_CPF',
+                'NUM_DOC', 'CHV_NFE', 'DT_DOC', 'COD_PART', 'NOME_PART', 'CNPJ_CPF', 'UF_PART',
                 'COD_ITEM', 'DESCR_ITEM', 'NCM', 'CFOP', 
                 'VL_TOTAL',  # Total do item (antes dos tributos)
                 'VL_BC_ICMS', 'VL_ICMS', 'VL_ICMS_ST', 'VL_IPI',
@@ -294,7 +294,7 @@ with aba1:
             # Renomeia colunas para exibição
             df_saida_display.columns = [
                 'Número NF', 'Chave de Acesso', 'Data Emissão', 
-                'Cód. Participante', 'Nome Participante', 'CNPJ/CPF',
+                'Cód. Participante', 'Nome Participante', 'CNPJ/CPF', 'UF',
                 'Cód. Produto', 'Produto', 'NCM', 'CFOP',
                 'Total',  # Total do item
                 'BC ICMS', 'ICMS', 'ICMS-ST', 'IPI',
